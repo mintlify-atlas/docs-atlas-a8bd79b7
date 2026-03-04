@@ -1,0 +1,109 @@
+{
+  "projectType": "framework",
+  "projectName": "Pixi Build Backends",
+  "projectDescription": "Backend implementations for building Pixi projects from source with support for multiple languages and build systems",
+  "theme": "aspen",
+  "primaryColor": "#3b82f6",
+  "lightColor": "#60a5fa",
+  "darkColor": "#2563eb",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/build-backends",
+              "concepts/protocol",
+              "concepts/compilers",
+              "concepts/variants"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/configuration",
+              "guides/debugging",
+              "guides/developing-backends"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Backends",
+        "groups": [
+          {
+            "group": "Available Backends",
+            "pages": [
+              "backends/overview",
+              "backends/pixi-build-python",
+              "backends/pixi-build-cmake",
+              "backends/pixi-build-rust",
+              "backends/pixi-build-rattler-build",
+              "backends/pixi-build-ros",
+              "backends/pixi-build-mojo"
+            ]
+          },
+          {
+            "group": "Backend Development",
+            "pages": [
+              "backends/creating-backends",
+              "backends/backend-api"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Configuration",
+            "pages": [
+              "api/build-system",
+              "api/config-options",
+              "api/dependency-types"
+            ]
+          },
+          {
+            "group": "Backend Protocol",
+            "pages": [
+              "api/protocol-spec",
+              "api/project-model",
+              "api/generated-recipe"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Multiple language support (Python, Rust, C/C++, Mojo, ROS)",
+    "Standardized build backend protocol",
+    "Automatic compiler detection and integration",
+    "Cross-platform conda package building",
+    "PyPI-to-conda dependency mapping",
+    "Integration with rattler-build ecosystem",
+    "Extensible backend architecture"
+  ],
+  "publicApiSurface": [
+    "pixi-build-python",
+    "pixi-build-cmake",
+    "pixi-build-rust",
+    "pixi-build-rattler-build",
+    "pixi-build-ros",
+    "pixi-build-mojo",
+    "pixi-build-backend (core library)",
+    "Backend Protocol (JSON-RPC)",
+    "Project Model API",
+    "Recipe Generation API"
+  ]
+}
