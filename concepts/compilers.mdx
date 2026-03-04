@@ -270,10 +270,10 @@ Only certain backends support the `compilers` configuration option:
 
 | Backend | Compiler Support | Default Compilers | Rationale |
 |---------|------------------|-------------------|-----------|
-| **[pixi-build-cmake](/backends/pixi-build-cmake#compilers)** | ✅ Supported | `["cxx"]` | Most CMake projects are C++ |
-| **[pixi-build-rust](/backends/pixi-build-rust#compilers)** | ✅ Supported | `["rust"]` | Rust projects need the Rust compiler |
-| **[pixi-build-python](/backends/pixi-build-python#compilers)** | ✅ Supported | `[]` | Pure Python packages typically don't need compilers |
-| **[pixi-build-mojo](/backends/pixi-build-mojo#compilers)** | ✅ Supported | `[]` | `mojo-compiler` must be specified manually |
+| **[pixi-build-cmake](/backends/pixi-build-cmake)** | ✅ Supported | `["cxx"]` | Most CMake projects are C++ |
+| **[pixi-build-rust](/backends/pixi-build-rust)** | ✅ Supported | `["rust"]` | Rust projects need the Rust compiler |
+| **[pixi-build-python](/backends/pixi-build-python)** | ✅ Supported | `[]` | Pure Python packages typically don't need compilers |
+| **[pixi-build-mojo](/backends/pixi-build-mojo)** | ✅ Supported | `[]` | `mojo-compiler` must be specified manually |
 | **pixi-build-rattler-build** | ❌ Not Supported | N/A | Configure compilers directly in `recipe.yaml` |
 
 <Info>
