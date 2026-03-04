@@ -1,0 +1,386 @@
+---
+title: Installation
+description: Install Pixi Build Backends and configure your environment
+---
+
+## Prerequisites
+
+Before using Pixi Build Backends, you need:
+
+<Steps>
+  <Step title="Install Pixi">
+    Pixi is the package manager that orchestrates build backends. Install it using one of these methods:
+
+    <Tabs>
+      <Tab title="Linux & macOS">
+        ```bash
+        curl -fsSL https://pixi.sh/install.sh | bash
+        ```
+      </Tab>
+      <Tab title="Windows">
+        ```powershell
+        iwr -useb https://pixi.sh/install.ps1 | iex
+        ```
+      </Tab>
+      <Tab title="Homebrew">
+        ```bash
+        brew install pixi
+        ```
+      </Tab>
+    </Tabs>
+
+    <Info>
+      After installation, restart your terminal or run `source ~/.bashrc` (Linux) / `source ~/.zshrc` (macOS) to update your PATH.
+    </Info>
+  </Step>
+
+  <Step title="Verify installation">
+    Check that Pixi is installed correctly:
+
+    ```bash
+    pixi --version
+    ```
+
+    You should see output like:
+
+    ```
+    pixi 0.32.0
+    ```
+  </Step>
+
+  <Step title="Enable pixi-build preview feature">
+    Build backends require the experimental `pixi-build` feature. Enable it in your project's `pixi.toml`:
+
+    ```toml pixi.toml
+    [workspace]
+    preview = ["pixi-build"]
+    ```
+
+    <Warning>
+      The `pixi-build` feature is currently in preview and may have breaking changes until it's stabilized.
+    </Warning>
+  </Step>
+</Steps>
+
+## Backend Installation
+
+Build backends are **automatically installed** when you specify them in your `pixi.toml`. You don't need to install them manually.
+
+### Automatic Installation
+
+When you configure a backend in your project:
+
+```toml pixi.toml
+[package.build]
+backend = { name = "pixi-build-python", version = "*" }
+channels = ["https://prefix.dev/conda-forge"]
+```
+
+Pixi will:
+1. Download the backend package from the specified channels
+2. Install it in an isolated build environment
+3. Use it to build your package
+
+### Available Channels
+
+Backends are distributed through two conda channels:
+
+<CardGroup cols={2}>
+  <Card title="conda-forge" icon="box">
+    **Stable releases**
+    
+    ```
+    https://prefix.dev/conda-forge
+    ```
+    
+    Use this for production builds. Contains released versions of all backends.
+  </Card>
+  <Card title="pixi-build-backends" icon="flask">
+    **Latest versions**
+    
+    ```
+    https://prefix.dev/pixi-build-backends
+    ```
+    
+    Use this for the latest features. May contain unreleased versions.
+  </Card>
+</CardGroup>
+
+### Specifying Backend Versions
+
+You can pin backend versions for reproducibility:
+
+<Tabs>
+  <Tab title="Latest (Recommended)">
+    ```toml
+    backend = { name = "pixi-build-python", version = "*" }
+    ```
+    Always uses the latest available version.
+  </Tab>
+  <Tab title="Version Range">
+    ```toml
+    backend = { name = "pixi-build-python", version = ">=0.4.0,<0.5.0" }
+    ```
+    Allows patch updates but not minor version changes.
+  </Tab>
+  <Tab title="Exact Version">
+    ```toml
+    backend = { name = "pixi-build-python", version = "=0.4.5" }
+    ```
+    Pins to a specific version for maximum reproducibility.
+  </Tab>
+</Tabs>
+
+## Manual Backend Installation (Development)
+
+If you're developing backends or need to test unreleased versions, you can install them manually.
+
+### Install from Source
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/prefix-dev/pixi-build-backends.git
+    cd pixi-build-backends
+    ```
+  </Step>
+
+  <Step title="Install a specific backend">
+    Install one or more backends using the provided pixi tasks:
+
+    <Tabs>
+      <Tab title="Python">
+        ```bash
+        pixi run install-pixi-build-python
+        ```
+      </Tab>
+      <Tab title="Rust">
+        ```bash
+        pixi run install-pixi-build-rust
+        ```
+      </Tab>
+      <Tab title="CMake">
+        ```bash
+        pixi run install-pixi-build-cmake
+        ```
+      </Tab>
+      <Tab title="All Backends">
+        ```bash
+        pixi run install-pixi-backends
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Override backend in your project">
+    To use your locally installed backend instead of the channel version, add to your project's `pixi.toml`:
+
+    ```toml pixi.toml
+    [workspace.build-backends]
+    pixi-build-python = { path = "/path/to/pixi-build-backends/target/release/pixi-build-python" }
+    ```
+
+    <Info>
+      This is useful for testing backend changes before publishing.
+    </Info>
+  </Step>
+</Steps>
+
+### Build Backends from Source
+
+To build all backends:
+
+```bash
+cd pixi-build-backends
+pixi run build
+```
+
+Binaries will be in `target/release/` or `target/pixi/release/` depending on your configuration.
+
+## Platform-Specific Setup
+
+### Linux
+
+<Accordion title="Ubuntu/Debian">
+  Install build essentials:
+
+  ```bash
+  sudo apt-get update
+  sudo apt-get install build-essential
+  ```
+</Accordion>
+
+<Accordion title="Fedora/RHEL">
+  Install development tools:
+
+  ```bash
+  sudo dnf groupinstall "Development Tools"
+  ```
+</Accordion>
+
+### macOS
+
+<Accordion title="Install Xcode Command Line Tools">
+  Required for C/C++ compilation:
+
+  ```bash
+  xcode-select --install
+  ```
+</Accordion>
+
+### Windows
+
+<Accordion title="Install Visual Studio Build Tools">
+  For C/C++ compilation, install Visual Studio Build Tools:
+
+  1. Download from [visualstudio.microsoft.com](https://visualstudio.microsoft.com/downloads/)
+  2. Select "Desktop development with C++"
+  3. Install
+
+  <Info>
+    The Python backend on Windows uses Visual Studio 2022 compilers by default. Older Visual Studio versions can be configured using build variants.
+  </Info>
+</Accordion>
+
+## Verifying Installation
+
+### Check Backend Availability
+
+Create a test project to verify everything works:
+
+```bash
+mkdir test-build
+cd test-build
+```
+
+Create a minimal `pixi.toml`:
+
+```toml pixi.toml
+[workspace]
+preview = ["pixi-build"]
+channels = ["https://prefix.dev/conda-forge"]
+platforms = ["linux-64"]
+
+[package]
+name = "test-package"
+version = "0.1.0"
+
+[package.build]
+backend = { name = "pixi-build-python", version = "*" }
+channels = ["https://prefix.dev/conda-forge"]
+```
+
+Create a minimal `pyproject.toml`:
+
+```toml pyproject.toml
+[project]
+name = "test-package"
+version = "0.1.0"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+```
+
+Run the build:
+
+```bash
+pixi build
+```
+
+If successful, you'll see:
+
+```
+✓ Build completed successfully
+📦 Package: output/linux-64/test-package-0.1.0-py311_0.conda
+```
+
+## Configuration Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use version ranges" icon="arrows-left-right">
+    Allow patch updates but pin major/minor versions:
+    
+    ```toml
+    version = ">=0.4.0,<0.5.0"
+    ```
+  </Card>
+  <Card title="Pin in CI/CD" icon="lock">
+    Use exact versions in production pipelines for reproducibility:
+    
+    ```toml
+    version = "=0.4.5"
+    ```
+  </Card>
+  <Card title="Use multiple channels" icon="network-wired">
+    Include both conda-forge and pixi-build-backends:
+    
+    ```toml
+    channels = [
+      "https://prefix.dev/pixi-build-backends",
+      "https://prefix.dev/conda-forge"
+    ]
+    ```
+  </Card>
+  <Card title="Enable preview features explicitly" icon="eye">
+    Always document preview features in comments:
+    
+    ```toml
+    # Required for pixi-build (experimental)
+    preview = ["pixi-build"]
+    ```
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<Accordion title="'pixi build' command not found">
+  Make sure you've enabled the preview feature:
+
+  ```toml
+  [workspace]
+  preview = ["pixi-build"]
+  ```
+
+  If the error persists, update Pixi to the latest version:
+
+  ```bash
+  pixi self-update
+  ```
+</Accordion>
+
+<Accordion title="Backend not found in channels">
+  1. Check your `channels` list includes `https://prefix.dev/conda-forge`
+  2. Verify the backend name is spelled correctly
+  3. Try adding the pixi-build-backends channel:
+
+  ```toml
+  channels = [
+    "https://prefix.dev/pixi-build-backends",
+    "https://prefix.dev/conda-forge"
+  ]
+  ```
+</Accordion>
+
+<Accordion title="Build fails with 'compiler not found'">
+  Install platform-specific build tools (see [Platform-Specific Setup](#platform-specific-setup) above).
+
+  For language-specific compilers, they will be automatically installed by the backend.
+</Accordion>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Build your first package with a step-by-step guide
+  </Card>
+  <Card title="Backend Overview" icon="list" href="/backends/overview">
+    Explore all available backends and choose the right one
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/guides/configuration">
+    Learn about all configuration options
+  </Card>
+  <Card title="Core Concepts" icon="book-open" href="/concepts/build-backends">
+    Understand how build backends work
+  </Card>
+</CardGroup>

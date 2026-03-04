@@ -1,0 +1,528 @@
+---
+title: Creating Custom Backends
+description: Step-by-step guide to implementing a custom build backend for Pixi Build
+---
+
+This guide walks you through creating a custom build backend for Pixi Build. You'll learn how to implement the required traits, handle protocol communication, and generate build recipes.
+
+## Overview
+
+A Pixi Build backend is a Rust program that:
+
+1. Implements the `GenerateRecipe` trait to convert project metadata into build recipes
+2. Uses the `IntermediateBackendInstantiator` to handle protocol communication
+3. Generates platform-specific build scripts and dependency information
+4. Communicates with the Pixi frontend via JSON-RPC
+
+## Prerequisites
+
+Before creating a backend, you should:
+
+- Be familiar with Rust programming
+- Understand the build system you're targeting (e.g., CMake, Cargo, etc.)
+- Have basic knowledge of conda package building
+
+## Step 1: Project Setup
+
+<Steps>
+
+### Create a new Rust project
+
+Create a new binary crate for your backend:
+
+```bash
+cargo new --bin pixi-build-mybuild
+cd pixi-build-mybuild
+```
+
+### Add required dependencies
+
+Add the following to your `Cargo.toml`:
+
+```toml Cargo.toml
+[package]
+name = "pixi-build-mybuild"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pixi-build-backend = "0.4"
+pixi_build_types = "0.1"
+rattler_conda_types = "0.28"
+rattler-build = "0.30"
+recipe-stage0 = "0.1"
+async-trait = "0.1"
+miette = "7.0"
+indexmap = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+</Steps>
+
+## Step 2: Define Backend Configuration
+
+Create a configuration struct that users can customize in their `pixi.toml`:
+
+```rust src/config.rs
+use indexmap::IndexMap;
+use pixi_build_backend::generated_recipe::BackendConfig;
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct MyBuildBackendConfig {
+    /// Extra arguments to pass to the build tool
+    #[serde(default)]
+    pub extra_args: Vec<String>,
+    
+    /// Environment variables to set during build
+    #[serde(default)]
+    pub env: IndexMap<String, String>,
+    
+    /// Extra input globs to watch for changes
+    #[serde(default)]
+    pub extra_input_globs: Vec<String>,
+    
+    /// List of compilers to use (e.g., ["c", "cxx"])
+    pub compilers: Option<Vec<String>>,
+    
+    /// Debug directory for internal state logging
+    pub debug_dir: Option<PathBuf>,
+}
+
+impl BackendConfig for MyBuildBackendConfig {
+    fn debug_dir(&self) -> Option<&Path> {
+        self.debug_dir.as_deref()
+    }
+    
+    fn merge_with_target_config(&self, target_config: &Self) -> miette::Result<Self> {
+        if target_config.debug_dir.is_some() {
+            miette::bail!("`debug_dir` cannot have a target specific value");
+        }
+        
+        Ok(Self {
+            extra_args: if target_config.extra_args.is_empty() {
+                self.extra_args.clone()
+            } else {
+                target_config.extra_args.clone()
+            },
+            env: {
+                let mut merged_env = self.env.clone();
+                merged_env.extend(target_config.env.clone());
+                merged_env
+            },
+            extra_input_globs: if target_config.extra_input_globs.is_empty() {
+                self.extra_input_globs.clone()
+            } else {
+                target_config.extra_input_globs.clone()
+            },
+            compilers: target_config.compilers.clone()
+                .or_else(|| self.compilers.clone()),
+            debug_dir: self.debug_dir.clone(),
+        })
+    }
+}
+```
+
+## Step 3: Implement the Generator
+
+Create the core generator that implements `GenerateRecipe`:
+
+```rust src/main.rs
+use miette::IntoDiagnostic;
+use pixi_build_backend::{
+    generated_recipe::{DefaultMetadataProvider, GenerateRecipe, GeneratedRecipe, PythonParams},
+    intermediate_backend::IntermediateBackendInstantiator,
+    traits::ProjectModel,
+};
+use rattler_build::{NormalizedKey, recipe::variable::Variable};
+use rattler_conda_types::{ChannelUrl, Platform};
+use recipe_stage0::recipe::Script;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+mod config;
+use config::MyBuildBackendConfig;
+
+#[derive(Default, Clone)]
+pub struct MyBuildGenerator {}
+
+#[async_trait::async_trait]
+impl GenerateRecipe for MyBuildGenerator {
+    type Config = MyBuildBackendConfig;
+    
+    async fn generate_recipe(
+        &self,
+        model: &pixi_build_types::ProjectModel,
+        config: &Self::Config,
+        manifest_path: PathBuf,
+        host_platform: Platform,
+        _python_params: Option<PythonParams>,
+        variants: &HashSet<NormalizedKey>,
+        _channels: Vec<ChannelUrl>,
+        _cache_dir: Option<PathBuf>,
+    ) -> miette::Result<GeneratedRecipe> {
+        // Determine the manifest root directory
+        let manifest_root = if manifest_path.is_file() {
+            manifest_path.parent()
+                .ok_or_else(|| miette::Error::msg("Manifest has no parent directory"))?
+                .to_path_buf()
+        } else {
+            manifest_path.clone()
+        };
+        
+        // Create the base recipe from the project model
+        let mut generated_recipe = GeneratedRecipe::from_model(
+            model.clone(),
+            &mut DefaultMetadataProvider,
+        ).into_diagnostic()?;
+        
+        // Get platform-specific dependencies
+        let model_dependencies = model.dependencies(Some(host_platform));
+        
+        // Add compilers to build requirements
+        let compilers = config.compilers.clone()
+            .unwrap_or_else(|| vec!["c".to_string(), "cxx".to_string()]);
+        
+        pixi_build_backend::compilers::add_compilers_to_requirements(
+            &compilers,
+            &mut generated_recipe.recipe.requirements.build,
+            &model_dependencies,
+            &host_platform,
+        );
+        
+        pixi_build_backend::compilers::add_stdlib_to_requirements(
+            &compilers,
+            &mut generated_recipe.recipe.requirements.build,
+            variants,
+        );
+        
+        // Add build tools (customize for your build system)
+        let build_tools = vec!["make", "cmake"];  // Example tools
+        for tool in build_tools {
+            let tool_name = pixi_build_types::SourcePackageName::from(tool);
+            if !model_dependencies.build.contains_key(&tool_name) {
+                generated_recipe.recipe.requirements.build.push(
+                    tool.parse().into_diagnostic()?
+                );
+            }
+        }
+        
+        // Generate build script
+        let build_script = generate_build_script(
+            &manifest_root,
+            &config.extra_args,
+            host_platform,
+        );
+        
+        generated_recipe.recipe.build.script = Script {
+            content: build_script,
+            env: config.env.clone(),
+            ..Default::default()
+        };
+        
+        Ok(generated_recipe)
+    }
+    
+    fn extract_input_globs_from_build(
+        &self,
+        config: &Self::Config,
+        _workdir: impl AsRef<Path>,
+        _editable: bool,
+    ) -> miette::Result<BTreeSet<String>> {
+        Ok([
+            "**/*.c",
+            "**/*.h",
+            "**/CMakeLists.txt",
+            "**/Makefile",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .chain(config.extra_input_globs.clone())
+        .collect())
+    }
+    
+    fn default_variants(
+        &self,
+        host_platform: Platform,
+    ) -> miette::Result<BTreeMap<NormalizedKey, Vec<Variable>>> {
+        let mut variants = BTreeMap::new();
+        
+        if host_platform.is_windows() {
+            variants.insert(NormalizedKey::from("c_compiler"), vec!["vs2022".into()]);
+            variants.insert(NormalizedKey::from("cxx_compiler"), vec!["vs2022".into()]);
+        }
+        
+        Ok(variants)
+    }
+}
+
+fn generate_build_script(
+    source_dir: &Path,
+    extra_args: &[String],
+    platform: Platform,
+) -> String {
+    let is_windows = platform.is_windows();
+    
+    if is_windows {
+        format!(
+            r#"
+mybuild.exe build {}
+if errorlevel 1 exit 1
+mybuild.exe install --prefix=%LIBRARY_PREFIX%
+if errorlevel 1 exit 1
+"#,
+            extra_args.join(" ")
+        )
+    } else {
+        format!(
+            r#"
+#!/bin/bash
+set -euxo pipefail
+mybuild build {}
+mybuild install --prefix=$PREFIX
+"#,
+            extra_args.join(" ")
+        )
+    }
+}
+
+#[tokio::main]
+pub async fn main() {
+    if let Err(err) = pixi_build_backend::cli::main(|log| {
+        IntermediateBackendInstantiator::<MyBuildGenerator>::new(log, Arc::default())
+    })
+    .await
+    {
+        eprintln!("Error: {err:?}");
+        std::process::exit(1);
+    }
+}
+```
+
+## Step 4: Handle Build Scripts
+
+For complex build scripts, use a template system:
+
+```rust src/build_script.rs
+use minijinja::{context, Environment};
+
+pub enum BuildPlatform {
+    Windows,
+    Unix,
+}
+
+pub struct BuildScriptContext {
+    pub source_dir: String,
+    pub extra_args: Vec<String>,
+    pub build_platform: BuildPlatform,
+}
+
+impl BuildScriptContext {
+    pub fn render(&self) -> String {
+        let mut env = Environment::new();
+        
+        let template = match self.build_platform {
+            BuildPlatform::Windows => include_str!("build.bat.jinja"),
+            BuildPlatform::Unix => include_str!("build.sh.jinja"),
+        };
+        
+        env.add_template("build", template).unwrap();
+        let tmpl = env.get_template("build").unwrap();
+        
+        tmpl.render(context! {
+            source_dir => &self.source_dir,
+            extra_args => &self.extra_args.join(" "),
+        })
+        .unwrap()
+    }
+}
+```
+
+## Step 5: Testing Your Backend
+
+<Steps>
+
+### Create integration tests
+
+```rust tests/integration_test.rs
+use pixi_build_types::ProjectModel;
+use rattler_conda_types::Platform;
+use std::collections::HashSet;
+use std::path::PathBuf;
+
+#[tokio::test]
+async fn test_basic_recipe_generation() {
+    let project_model: ProjectModel = serde_json::from_value(serde_json::json!({
+        "name": "test-package",
+        "version": "0.1.0",
+        "targets": {
+            "defaultTarget": {
+                "runDependencies": {
+                    "mylib": {
+                        "binary": { "version": "*" }
+                    }
+                }
+            }
+        }
+    })).unwrap();
+    
+    let generator = MyBuildGenerator::default();
+    let config = MyBuildBackendConfig::default();
+    
+    let recipe = generator.generate_recipe(
+        &project_model,
+        &config,
+        PathBuf::from("."),
+        Platform::Linux64,
+        None,
+        &HashSet::new(),
+        vec![],
+        None,
+    ).await.unwrap();
+    
+    assert_eq!(recipe.recipe.package.name.as_normalized(), "test-package");
+    assert!(!recipe.recipe.requirements.build.is_empty());
+}
+```
+
+### Test with a real project
+
+Create a test project directory:
+
+```bash
+mkdir test-project
+cd test-project
+```
+
+Create a `pixi.toml`:
+
+```toml pixi.toml
+[package]
+name = "test-package"
+version = "0.1.0"
+
+[build-system]
+build-backend = { name = "pixi-build-mybuild", version = "*" }
+
+[build-system.backend-config]
+extra-args = ["--verbose"]
+compilers = ["c", "cxx"]
+```
+
+Build the package:
+
+```bash
+pixi build
+```
+
+</Steps>
+
+## Advanced Topics
+
+### Working with Project Metadata
+
+Access project metadata through the `ProjectModel` trait:
+
+```rust
+use pixi_build_backend::traits::{ProjectModel, Targets};
+
+// Get platform-specific dependencies
+let deps = model.dependencies(Some(Platform::Linux64));
+
+// Access build, host, and run dependencies
+for (name, spec) in deps.build.iter() {
+    println!("Build dependency: {}", name.as_ref());
+}
+
+// Get variants used in the project
+let variants = model.used_variants(Some(Platform::Linux64));
+```
+
+### Adding Custom Metadata Providers
+
+Extract metadata from your build system's manifest files:
+
+```rust
+use pixi_build_backend::generated_recipe::MetadataProvider;
+
+pub struct MyManifestProvider {
+    manifest: MyManifest,
+}
+
+impl MetadataProvider for MyManifestProvider {
+    type Error = std::io::Error;
+    
+    fn name(&self) -> Result<Option<String>, Self::Error> {
+        Ok(Some(self.manifest.name.clone()))
+    }
+    
+    fn version(&self) -> Result<Option<rattler_conda_types::Version>, Self::Error> {
+        self.manifest.version.parse().ok().map(Some).ok_or_else(||
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid version")
+        )
+    }
+    
+    fn description(&self) -> Result<Option<String>, Self::Error> {
+        Ok(self.manifest.description.clone())
+    }
+    
+    fn license(&self) -> Result<Option<String>, Self::Error> {
+        Ok(self.manifest.license.clone())
+    }
+    
+    fn input_globs(&self) -> BTreeSet<String> {
+        BTreeSet::new()
+    }
+}
+```
+
+### Platform-Specific Build Logic
+
+```rust
+match host_platform {
+    p if p.is_windows() => {
+        // Windows-specific build logic
+        requirements.build.push("vs2022".parse().into_diagnostic()?);
+    }
+    p if p.is_linux() => {
+        // Linux-specific build logic
+        requirements.build.push("gcc".parse().into_diagnostic()?);
+    }
+    p if p.is_osx() => {
+        // macOS-specific build logic
+        requirements.build.push("clang".parse().into_diagnostic()?);
+    }
+    _ => {}
+}
+```
+
+## Real-World Examples
+
+See the official backends for complete implementations:
+
+<CardGroup cols={3}>
+  <Card title="pixi-build-rust" icon="rust" href="https://github.com/prefix-dev/pixi-build-backends/tree/main/crates/pixi-build-rust">
+    Rust/Cargo backend implementation
+  </Card>
+  <Card title="pixi-build-cmake" icon="hammer" href="https://github.com/prefix-dev/pixi-build-backends/tree/main/crates/pixi-build-cmake">
+    CMake backend implementation
+  </Card>
+  <Card title="pixi-build-python" icon="python" href="https://github.com/prefix-dev/pixi-build-backends/tree/main/crates/pixi-build-python">
+    Python backend with PyPI mapping
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Backend API Reference" icon="book" href="/backends/backend-api">
+    Detailed API documentation for backend development
+  </Card>
+  <Card title="Protocol Specification" icon="exchange" href="/protocol">
+    Learn about the JSON-RPC protocol
+  </Card>
+</CardGroup>

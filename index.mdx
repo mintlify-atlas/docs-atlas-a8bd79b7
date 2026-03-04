@@ -1,97 +1,261 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Pixi Build Backends"
+description: "Build conda packages from source with language-specific backends"
+mode: "custom"
 ---
 
-## Setting up
+<div className="relative overflow-hidden bg-gradient-to-br from-blue-600 via-blue-700 to-blue-900 dark:from-[#1e3a8a] dark:via-[#1e40af] dark:to-[#1e293b] py-20">
+  <div className="max-w-7xl mx-auto px-6 lg:px-8">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
+      <div className="lg:col-span-7">
+        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white mb-6">
+          Pixi Build Backends
+        </h1>
+        <p className="text-xl text-blue-100 dark:text-blue-200 max-w-2xl mb-8">
+          Build conda packages from source with specialized backends for Python, Rust, C/C++, and more. Seamlessly integrate with the Pixi ecosystem.
+        </p>
+        <div className="flex flex-wrap gap-4">
+          <a 
+            href="/quickstart" 
+            className="inline-flex items-center px-6 py-3 rounded-lg bg-white text-blue-700 font-semibold hover:bg-blue-50 transition-colors no-underline"
+          >
+            Get Started
+          </a>
+          <a 
+            href="/backends/overview" 
+            className="inline-flex items-center px-6 py-3 rounded-lg border border-white/30 bg-white/10 text-white font-semibold hover:bg-white/20 transition-colors no-underline"
+          >
+            Explore Backends
+          </a>
+        </div>
+      </div>
+      <div className="lg:col-span-5 hidden lg:block">
+        <div className="relative">
+          <img 
+            src="/banner.svg" 
+            alt="Pixi Build Backends Architecture" 
+            className="w-full h-auto max-w-md mx-auto"
+            noZoom
+          />
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
-Get your documentation site up and running in minutes.
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <div className="mb-16">
+    <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">Quick start</h2>
+    <p className="text-lg text-gray-600 dark:text-gray-400 mb-8">Get building in minutes with any supported language</p>
+    
+    <Steps>
+      <Step title="Add build configuration to pixi.toml">
+        Specify which backend to use for your project:
+        
+        ```toml pixi.toml
+        [package]
+        name = "my-package"
+        version = "0.1.0"
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+        [package.build]
+        backend = { name = "pixi-build-python", version = "*" }
+        channels = ["https://prefix.dev/conda-forge"]
+        ```
+      </Step>
+      
+      <Step title="Build your package">
+        Run the build command to create a conda package:
+        
+        ```bash
+        pixi build
+        ```
+        
+        <Note>
+          The backend automatically generates a complete rattler-build recipe and handles all build dependencies.
+        </Note>
+      </Step>
+      
+      <Step title="Install or distribute">
+        Install locally or publish to a conda channel:
+        
+        ```bash
+        # Install locally
+        pixi install
+        
+        # Or upload to a channel
+        pixi upload output/my-package-0.1.0-*.conda
+        ```
+      </Step>
+    </Steps>
+  </div>
 
-## Make it yours
+  <div className="mb-16">
+    <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">Available backends</h2>
+    <p className="text-lg text-gray-600 dark:text-gray-400 mb-8">Choose the right backend for your project</p>
+    
+    <CardGroup cols={3}>
+      <Card
+        title="Python"
+        icon="python"
+        href="/backends/pixi-build-python"
+      >
+        Build Python packages with PEP 517/518 support and automatic PyPI dependency mapping.
+      </Card>
+      <Card
+        title="Rust"
+        icon="rust"
+        href="/backends/pixi-build-rust"
+      >
+        Build Rust crates with Cargo integration and automatic dependency detection.
+      </Card>
+      <Card
+        title="CMake"
+        icon="c"
+        href="/backends/pixi-build-cmake"
+      >
+        Build C/C++ projects using CMake with cross-platform compiler support.
+      </Card>
+      <Card
+        title="Rattler Build"
+        icon="gears"
+        href="/backends/pixi-build-rattler-build"
+      >
+        Use recipe.yaml directly for full control over the build process.
+      </Card>
+      <Card
+        title="ROS"
+        icon="robot"
+        href="/backends/pixi-build-ros"
+      >
+        Build Robot Operating System packages with colcon integration.
+      </Card>
+      <Card
+        title="Mojo"
+        icon="fire"
+        href="/backends/pixi-build-mojo"
+      >
+        Build Mojo applications and packages with native performance.
+      </Card>
+    </CardGroup>
+  </div>
 
-Design a docs site that looks great and empowers your users.
+  <div className="mb-16">
+    <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">Key features</h2>
+    <p className="text-lg text-gray-600 dark:text-gray-400 mb-8">Everything you need to build conda packages</p>
+    
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="p-6 rounded-lg border dark:border-[#27272a] border-gray-200 dark:bg-[#1a1d27] bg-gray-50">
+        <div className="flex items-start gap-3 mb-3">
+          <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+            <svg className="w-5 h-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Automatic compiler detection</h3>
+            <p className="text-gray-600 dark:text-gray-400">Backends automatically detect and configure compilers based on your build tools and dependencies.</p>
+          </div>
+        </div>
+      </div>
+      
+      <div className="p-6 rounded-lg border dark:border-[#27272a] border-gray-200 dark:bg-[#1a1d27] bg-gray-50">
+        <div className="flex items-start gap-3 mb-3">
+          <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+            <svg className="w-5 h-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
+            </svg>
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Cross-platform support</h3>
+            <p className="text-gray-600 dark:text-gray-400">Build packages for Linux, macOS, and Windows with consistent behavior across platforms.</p>
+          </div>
+        </div>
+      </div>
+      
+      <div className="p-6 rounded-lg border dark:border-[#27272a] border-gray-200 dark:bg-[#1a1d27] bg-gray-50">
+        <div className="flex items-start gap-3 mb-3">
+          <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+            <svg className="w-5 h-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Standardized protocol</h3>
+            <p className="text-gray-600 dark:text-gray-400">All backends follow a JSON-RPC protocol for consistent integration with Pixi.</p>
+          </div>
+        </div>
+      </div>
+      
+      <div className="p-6 rounded-lg border dark:border-[#27272a] border-gray-200 dark:bg-[#1a1d27] bg-gray-50">
+        <div className="flex items-start gap-3 mb-3">
+          <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+            <svg className="w-5 h-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+            </svg>
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Extensible architecture</h3>
+            <p className="text-gray-600 dark:text-gray-400">Create custom backends for any build system using the provided API and libraries.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
-  </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
-  </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
-  </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
-  </Card>
-</Columns>
+  <div className="mb-16">
+    <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">Learn more</h2>
+    <p className="text-lg text-gray-600 dark:text-gray-400 mb-8">Dive deeper into the documentation</p>
+    
+    <CardGroup cols={2}>
+      <Card
+        title="Core concepts"
+        icon="lightbulb"
+        href="/concepts/build-backends"
+      >
+        Understand how build backends work and integrate with Pixi.
+      </Card>
+      <Card
+        title="Configuration guide"
+        icon="sliders"
+        href="/guides/configuration"
+      >
+        Learn how to configure backends for your specific needs.
+      </Card>
+      <Card
+        title="Debugging builds"
+        icon="bug"
+        href="/guides/debugging"
+      >
+        Troubleshoot build issues and inspect generated recipes.
+      </Card>
+      <Card
+        title="Create a backend"
+        icon="hammer"
+        href="/backends/creating-backends"
+      >
+        Build your own backend for custom build systems.
+      </Card>
+    </CardGroup>
+  </div>
 
-## Create beautiful pages
-
-Everything you need to create world-class documentation.
-
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
-
-## Need inspiration?
-
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+  <div className="p-8 rounded-2xl border dark:border-[#27272a] border-gray-200 dark:bg-[#1a1d27] bg-gray-50 text-center">
+    <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-3">Ready to start building?</h2>
+    <p className="text-gray-600 dark:text-gray-400 mb-6 max-w-2xl mx-auto">
+      Get up and running in minutes with our quickstart guide or explore the available backends.
+    </p>
+    <div className="flex flex-col sm:flex-row gap-3 justify-center">
+      <a 
+        href="/quickstart" 
+        className="inline-flex items-center justify-center px-6 py-3 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors no-underline"
+      >
+        View Quickstart
+      </a>
+      <a 
+        href="https://github.com/prefix-dev/pixi-build-backends" 
+        className="inline-flex items-center justify-center px-6 py-3 rounded-lg border dark:border-[#27272a] border-gray-300 dark:bg-[#242838] bg-white text-gray-900 dark:text-white font-semibold hover:bg-gray-100 dark:hover:bg-[#2a2f42] transition-colors no-underline"
+      >
+        View on GitHub
+      </a>
+    </div>
+  </div>
+</div>

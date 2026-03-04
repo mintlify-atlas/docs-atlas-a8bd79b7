@@ -1,0 +1,189 @@
+---
+title: "Build System Configuration"
+description: "Configure the build backend and channels for your package"
+---
+
+The build system configuration defines which backend will be used to build your package and where to find build dependencies. This is specified in the `[package.build]` section of your `pixi.toml` file.
+
+## Overview
+
+Every package that needs to be built from source must specify a build backend. The build backend is responsible for:
+
+- Reading your project's source files and metadata
+- Resolving build, host, and run dependencies
+- Executing the build process
+- Creating conda packages as output
+
+## Basic Configuration
+
+The minimal build system configuration requires specifying a backend:
+
+```toml
+[package]
+name = "my-package"
+version = "0.1.0"
+
+[package.build]
+backend = { name = "pixi-build-python", version = "*" }
+channels = ["https://prefix.dev/conda-forge"]
+```
+
+## Configuration Fields
+
+### `backend`
+
+<ParamField path="backend.name" type="string" required>
+  The name of the build backend package. This refers to both:
+  - The name of the conda package that provides the build backend
+  - The name of the executable inside that package
+  
+  Available backends:
+  - `pixi-build-python` - For Python projects
+  - `pixi-build-rust` - For Rust projects
+  - `pixi-build-cmake` - For CMake projects
+  - `pixi-build-mojo` - For Mojo projects
+  - `pixi-build-rattler-build` - For rattler-build recipe.yaml files
+</ParamField>
+
+<ParamField path="backend.version" type="string" required>
+  Version specification for the build backend package. Common values:
+  - `"*"` - Any version (latest available)
+  - `"0.1.*"` - Any patch version of 0.1
+  - `">=0.1.0,<0.2.0"` - Version range
+</ParamField>
+
+### `channels`
+
+<ParamField path="channels" type="array of strings" required>
+  Conda channels used to resolve build backend dependencies. The build backend package itself and all build dependencies will be resolved from these channels.
+  
+  Common channels:
+  - `https://prefix.dev/conda-forge` - Main conda-forge channel
+  - `https://prefix.dev/pixi-build-backends` - Official pixi build backends channel
+  
+  Example with multiple channels:
+  ```toml
+  channels = [
+    "https://prefix.dev/pixi-build-backends",
+    "https://prefix.dev/conda-forge"
+  ]
+  ```
+  
+  Channels are searched in order - earlier channels take precedence.
+</ParamField>
+
+## Backend-Specific Configuration
+
+Each backend can have additional configuration options specified in `[package.build.config]`. These options are backend-specific and control how the build process executes.
+
+### Python Backend Example
+
+```toml
+[package.build]
+backend = { name = "pixi-build-python", version = "*" }
+channels = ["https://prefix.dev/conda-forge"]
+
+[package.build.config]
+noarch = true
+extra-args = ["-v"]
+env = { PYTHONPATH = "/custom/path" }
+compilers = ["c", "cxx"]
+```
+
+### Rust Backend Example
+
+```toml
+[package.build]
+backend = { name = "pixi-build-rust", version = "*" }
+channels = ["https://prefix.dev/conda-forge"]
+
+[package.build.config]
+extra-args = ["--features", "serde,tokio"]
+env = { RUST_LOG = "debug" }
+compilers = ["rust"]
+```
+
+### CMake Backend Example
+
+```toml
+[package.build]
+backend = { name = "pixi-build-cmake", version = "*" }
+channels = ["https://prefix.dev/conda-forge"]
+
+[package.build.config]
+extra-args = ["-DCMAKE_BUILD_TYPE=Release", "-DENABLE_TESTING=ON"]
+env = { CMAKE_VERBOSE_MAKEFILE = "ON" }
+compilers = ["c", "cxx"]
+```
+
+## Target-Specific Configuration
+
+You can provide platform-specific build configuration using `[package.build.target.<platform>.config]`:
+
+```toml
+[package.build.config]
+compilers = ["cxx"]
+
+[package.build.target.linux-64.config]
+compilers = ["c", "cxx", "cuda"]
+
+[package.build.target.win-64.config]
+compilers = ["c", "cxx"]
+env = { MSVC_VERSION = "2022" }
+```
+
+Supported platforms include:
+- `linux-64`
+- `linux-aarch64`
+- `osx-64`
+- `osx-arm64`
+- `win-64`
+
+## Complete Example
+
+Here's a complete example showing all build system configuration options:
+
+```toml
+[workspace]
+preview = ["pixi-build"]
+
+[package]
+name = "my-awesome-package"
+version = "1.0.0"
+description = "An example package"
+
+[package.build]
+backend = { name = "pixi-build-python", version = "*" }
+channels = [
+  "https://prefix.dev/conda-forge",
+]
+
+[package.build.config]
+noarch = true
+extra-args = ["-vv"]
+env = { CUSTOM_VAR = "value" }
+ignore-pypi-mapping = false
+
+[package.build.target.linux-64.config]
+noarch = false
+compilers = ["c", "cxx"]
+
+[package.build-dependencies]
+python = ">=3.8"
+
+[package.host-dependencies]
+hatchling = "*"
+
+[package.run-dependencies]
+requests = ">=2.28"
+```
+
+## See Also
+
+- [Configuration Options](/api/config-options) - Detailed backend configuration options
+- [Dependency Types](/api/dependency-types) - Understanding build, host, and run dependencies
+- Backend Documentation:
+  - [pixi-build-python](https://github.com/prefix-dev/pixi-build-backends/blob/main/docs/backends/pixi-build-python.md)
+  - [pixi-build-rust](https://github.com/prefix-dev/pixi-build-backends/blob/main/docs/backends/pixi-build-rust.md)
+  - [pixi-build-cmake](https://github.com/prefix-dev/pixi-build-backends/blob/main/docs/backends/pixi-build-cmake.md)
+  - [pixi-build-mojo](https://github.com/prefix-dev/pixi-build-backends/blob/main/docs/backends/pixi-build-mojo.md)

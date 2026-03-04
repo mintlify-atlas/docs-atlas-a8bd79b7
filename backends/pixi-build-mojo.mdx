@@ -1,0 +1,317 @@
+---
+title: "pixi-build-mojo"
+description: "Build Mojo projects with automatic binary and package discovery"
+---
+
+The `pixi-build-mojo` backend is designed for building Mojo projects. It provides seamless integration with Pixi's package management workflow.
+
+<Warning>
+  `pixi-build` is a preview feature and will change until it is stabilized. You must opt-in by adding `"pixi-build"` to `workspace.preview`:
+
+  ```toml
+  [workspace]
+  preview = ["pixi-build"]
+  ```
+</Warning>
+
+## Overview
+
+This backend automatically generates conda packages from Mojo projects. The generated packages can be installed into local envs for development, or packaged for distribution.
+
+### Auto-derive of pkg and bin
+
+The Mojo backend includes auto-discovery of your project structure and will derive the following:
+
+- **Binaries**: Automatically searches for `main.mojo` or `main.🔥` in:
+  - `<project_root>/main.mojo`
+- **Packages**: Automatically searches for directories with `__init__.mojo` or `__init__.🔥` in:
+  - `<project_root>/<project_name>/`
+  - `<project_root>/src/`
+
+This means in most cases, you don't need to explicitly configure the `bins` or `pkg` fields.
+
+**Caveats**:
+- If both a `bin` and a `pkg` are auto-derived, only the `bin` will be created; you must manually specify the pkg
+- If the user specifies a `pkg`, a `bin` will not be auto-derived
+- If the user specifies a `bin`, a `pkg` will not be auto-derived
+
+## Basic Usage
+
+To use the Mojo backend in your `pixi.toml`, add it to your package's build configuration. The backend will automatically discover your project structure:
+
+```
+# Example project layout for combined binary/library
+.
+├── greetings
+│   ├── __init__.mojo
+│   └── lib.mojo
+├── main.mojo
+├── pixi.lock
+├── pixi.toml
+└── README.md
+```
+
+With the project structure above, pixi-build-mojo will automatically discover:
+- The binary from `main.mojo`
+- The package from `greetings/__init__.mojo`
+
+Here's a minimal configuration that leverages auto-derive:
+
+```toml
+[workspace]
+authors = ["J. Doe <jdoe@mail.com>"]
+platforms = ["linux-64"]
+preview = ["pixi-build"]
+channels = [
+    "https://prefix.dev/conda-forge",
+    "https://conda.modular.com/max-nightly",
+    "https://prefix.dev/modular-community"
+]
+
+[package]
+name = "greetings"
+version = "0.1.0"
+
+[package.build]
+backend = { name = "pixi-build-mojo", version = "0.1.*" }
+
+[package.host-dependencies]
+mojo-compiler = "=25.5.0"
+
+[package.build-dependencies]
+mojo-compiler = "=25.5.0"
+small_time = ">=25.4.1,<26"
+extramojo = ">=0.16.0,<0.17"
+
+[package.run-dependencies]
+mojo-compiler = "=25.5.0"
+
+[dependencies]
+# For running `mojo test` while developing add all dependencies under
+# `[package.build-dependencies]` here as well.
+greetings = { path = "." }
+```
+
+### Project Structure Examples
+
+The auto-derive feature supports various common project layouts:
+
+<Tabs>
+  <Tab title="Binary-only">
+    ```
+    .
+    ├── main.mojo           # Auto-derive as binary
+    ├── pixi.toml
+    └── README.md
+    ```
+  </Tab>
+  <Tab title="Package-only">
+    ```
+    .
+    ├── mypackage/          # Auto-derive if matches project name
+    │   ├── __init__.mojo
+    │   └── utils.mojo
+    ├── pixi.toml
+    └── README.md
+    ```
+  </Tab>
+  <Tab title="Source Directory">
+    ```
+    .
+    ├── src/
+    │   ├── __init__.mojo   # Auto-derive as package
+    │   └── lib.mojo
+    ├── pixi.toml
+    └── README.md
+    ```
+  </Tab>
+  <Tab title="Combined">
+    ```
+    .
+    ├── greetings/
+    │   ├── __init__.mojo   # NOT auto-derived as package
+    │   └── lib.mojo
+    ├── main.mojo           # Auto-derived as binary
+    ├── pixi.toml
+    └── README.md
+    ```
+  </Tab>
+</Tabs>
+
+### Required Dependencies
+
+- `mojo` / `mojo-compiler` package for both the compiler and linked runtime
+
+## Configuration Options
+
+You can customize the Mojo backend behavior using the `[package.build.config]` section in your `pixi.toml`.
+
+### env
+
+<ParamField path="env" type="object" default="{}">
+  Environment variables to set during the build process.
+</ParamField>
+
+```toml
+[package.build.config]
+env = { ASSERT = "all" }
+```
+
+### debug-dir
+
+The backend always writes JSON-RPC request/response logs and the generated intermediate recipe to the `debug` subdirectory inside the work directory (e.g., `<work_directory>/debug`). The deprecated `debug-dir` configuration option is ignored; if present, the backend emits a warning to highlight that it no longer has any effect.
+
+### extra-input-globs
+
+<ParamField path="extra-input-globs" type="array" default="[]">
+  Additional globs to pass to pixi to discover if the package should be rebuilt.
+</ParamField>
+
+```toml
+[package.build.config]
+extra-input-globs = ["**/*.c", "assets/**/*", "*.md"]
+```
+
+### compilers
+
+<ParamField path="compilers" type="array" default="[]">
+  List of compilers to use for the build. Compilers use conda-forge's standard compiler infrastructure.
+  
+  **Target Merge Behavior**: Platform-specific compilers completely replace base compilers.
+</ParamField>
+
+```toml
+[package.build.config]
+compilers = ["c", "cxx"]
+```
+
+<Tabs>
+  <Tab title="Basic Example">
+    ```toml
+    [package.build.config]
+    compilers = []
+    ```
+  </Tab>
+  <Tab title="Platform-Specific">
+    ```toml
+    [package.build.config]
+    compilers = []
+
+    [package.build.target.linux-64.config]
+    compilers = ["c", "cuda"]
+    # Result for linux-64: ["c", "cuda"]
+    ```
+  </Tab>
+</Tabs>
+
+<Info>
+  For comprehensive compiler documentation including platform-specific behavior and conda-forge integration, see the [Compilers Documentation](https://pixi.sh/latest/key_concepts/compilers/).
+</Info>
+
+### bins
+
+<ParamField path="bins" type="array" default="auto-derived">
+  List of binary configurations to build. The created binary will be placed in the `$PREFIX/bin` dir and will be in the path after running `pixi install`.
+  
+  **Auto-derive behavior**: If `bins` is not specified, pixi-build-mojo will search for a `main.mojo` or `main.🔥` file in the project root. If a pkg has been manually configured, a bin will not be auto-derived and must be manually configured.
+</ParamField>
+
+#### bins[].name
+
+<ParamField path="bins[].name" type="string" default="project name">
+  The name of the binary executable to create. If not specified, defaults to the project name for the first binary. For additional binaries, this field is required.
+</ParamField>
+
+```toml
+[[package.build.config.bins]]
+# name = "greet"  # Optional for first binary, defaults to project name
+```
+
+#### bins[].path
+
+<ParamField path="bins[].path" type="string" default="auto-derived">
+  The path to the Mojo file that contains a `main` function. If not specified for the first binary, searches for `main.mojo` or `main.🔥` in the project root. For additional binaries, this field is required.
+</ParamField>
+
+```toml
+[[package.build.config.bins]]
+# path = "./main.mojo"  # Optional if main.mojo exists in project root
+```
+
+#### bins[].extra-args
+
+<ParamField path="bins[].extra-args" type="array" default="[]">
+  Additional command-line arguments to pass to the Mojo compiler when building this binary.
+</ParamField>
+
+```toml
+[[package.build.config.bins]]
+extra-args = ["-I", "special-thing"]
+```
+
+### pkg
+
+<ParamField path="pkg" type="object" default="auto-derived">
+  Package configuration for creating Mojo package. The created Mojo package will be placed in the `$PREFIX/lib/mojo` dir, which will make it discoverable to anything that depends on the package.
+  
+  **Auto-derive behavior**: If `pkg` is not specified, pixi-build-mojo will search for a directory containing `__init__.mojo` or `__init__.🔥` in:
+  1. `<project_root>/<project_name>/`
+  2. `<project_root>/src/`
+  
+  If a binary is manually configured, a pkg will not be auto-derived and must be manually specified. If a binary is also auto-derived, a pkg will not be generated and must be manually specified.
+</ParamField>
+
+#### pkg.name
+
+<ParamField path="pkg.name" type="string" default="project name">
+  The name to give the Mojo package. The `.mojopkg` suffix will be added automatically. If not specified, defaults to the project name.
+</ParamField>
+
+```toml
+[package.build.config.pkg]
+name = "greetings"
+```
+
+#### pkg.path
+
+<ParamField path="pkg.path" type="string" default="auto-derived">
+  The path to the directory that constitutes the package. If not specified, searches for a directory with `__init__.mojo` or `__init__.🔥` as described above.
+</ParamField>
+
+```toml
+[package.build.config.pkg]
+path = "greetings"
+```
+
+#### pkg.extra-args
+
+<ParamField path="pkg.extra-args" type="array" default="[]">
+  Additional command-line arguments to pass to the Mojo compiler when building this package.
+</ParamField>
+
+```toml
+[package.build.config.pkg]
+extra-args = ["-I", "special-thing"]
+```
+
+## Default Variants
+
+On Windows platforms, the backend automatically sets the following default variants:
+
+- `c_compiler`: `vs2022` - Visual Studio 2022 C compiler
+- `cxx_compiler`: `vs2022` - Visual Studio 2022 C++ compiler
+
+These variants are used when you specify compilers in your configuration. This default aligns with conda-forge's switch to Visual Studio 2022 and because [mainstream support for Visual Studio 2019 ended in 2024](https://learn.microsoft.com/en-us/lifecycle/products/visual-studio-2019).
+
+You can override these defaults using [`[workspace.build-variants]`](https://pixi.sh/latest/reference/pixi_manifest/#build-variants-optional):
+
+```toml
+[workspace.build-variants]
+c_compiler = ["vs2019"]
+cxx_compiler = ["vs2019"]
+```
+
+## See Also
+
+- [Mojo Pixi Basic](https://docs.modular.com/pixi/)
+- [Modular Community Packages](https://github.com/modular/modular-community)

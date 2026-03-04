@@ -1,0 +1,352 @@
+---
+title: 'Generated Recipe'
+description: 'IntermediateRecipe structure that backends must generate'
+---
+
+## Overview
+
+Backends must generate an `IntermediateRecipe` that describes how to build conda packages. This intermediate format is then converted to rattler-build's recipe format for the actual build process.
+
+The IntermediateRecipe is defined in `recipe-stage0` and provides a flexible, template-capable representation of conda recipes.
+
+## GenerateRecipe Trait
+
+Backends implement the `GenerateRecipe` trait to produce recipes:
+
+```rust
+#[async_trait]
+pub trait GenerateRecipe {
+    type Config: BackendConfig;
+
+    async fn generate_recipe(
+        &self,
+        model: &ProjectModel,
+        config: &Self::Config,
+        manifest_path: PathBuf,
+        host_platform: Platform,
+        python_params: Option<PythonParams>,
+        variants: &HashSet<NormalizedKey>,
+        channels: Vec<ChannelUrl>,
+        cache_dir: Option<PathBuf>,
+    ) -> miette::Result<GeneratedRecipe>;
+}
+```
+
+### Parameters
+
+<ParamField path="model" type="ProjectModel" required>
+  The project model containing metadata and dependencies (see [ProjectModel](/api/project-model))
+</ParamField>
+
+<ParamField path="config" type="BackendConfig" required>
+  Backend-specific configuration from `[tool.pixi-build.backend-config]`
+</ParamField>
+
+<ParamField path="manifest_path" type="PathBuf" required>
+  Path to the project manifest file (e.g., `pixi.toml`)
+</ParamField>
+
+<ParamField path="host_platform" type="Platform" required>
+  Target platform for the build. Note: This may be deprecated in favor of recipe selectors.
+</ParamField>
+
+<ParamField path="python_params" type="Option<PythonParams>">
+  Python-specific parameters (currently only `editable: bool`)
+</ParamField>
+
+<ParamField path="variants" type="HashSet<NormalizedKey>" required>
+  Available variant names that can be used in the recipe
+</ParamField>
+
+<ParamField path="channels" type="Vec<ChannelUrl>" required>
+  Channels being used for the build, for backend-specific logic
+</ParamField>
+
+<ParamField path="cache_dir" type="Option<PathBuf>">
+  Optional cache directory for HTTP responses and other cached data
+</ParamField>
+
+## GeneratedRecipe Structure
+
+The `GeneratedRecipe` returned by backends contains:
+
+<ResponseField name="recipe" type="IntermediateRecipe" required>
+  The recipe specification (see below)
+</ResponseField>
+
+<ResponseField name="metadata_input_globs" type="BTreeSet<String>">
+  Glob patterns for files that affect package metadata (triggers re-evaluation of outputs)
+</ResponseField>
+
+<ResponseField name="build_input_globs" type="BTreeSet<String>">
+  Glob patterns for files that affect the build (triggers rebuild)
+</ResponseField>
+
+## IntermediateRecipe
+
+The core recipe structure with all fields optional except package:
+
+### Package Section
+
+<ResponseField name="package" type="Package" required>
+  <Expandable title="properties">
+    <ResponseField name="name" type="Value<String>" required>
+      Package name (can be concrete value or Jinja template)
+    </ResponseField>
+    <ResponseField name="version" type="Value<String>" required>
+      Package version (can be concrete value or Jinja template)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Context Section
+
+<ResponseField name="context" type="IndexMap<String, Value<String>>">
+  Jinja template variables available in the recipe
+</ResponseField>
+
+Example:
+```yaml
+context:
+  name: my-package
+  version: "1.0.0"
+```
+
+### Source Section
+
+<ResponseField name="source" type="ConditionalList<Source>">
+  Source code locations (supports conditionals)
+  <Expandable title="Source types">
+    <ResponseField name="Url" type="UrlSource">
+      <Expandable title="properties">
+        <ResponseField name="url" type="Value<String>" required>
+          URL to download source from
+        </ResponseField>
+        <ResponseField name="sha256" type="Value<String>">
+          Expected SHA256 hash
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="Path" type="PathSource">
+      <Expandable title="properties">
+        <ResponseField name="path" type="Value<String>" required>
+          Local path to source files
+        </ResponseField>
+        <ResponseField name="sha256" type="Value<String>">
+          Expected SHA256 hash (for verification)
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Build Section
+
+<ResponseField name="build" type="Build">
+  <Expandable title="properties">
+    <ResponseField name="number" type="Value<u64>">
+      Build number (increments for same version)
+    </ResponseField>
+    <ResponseField name="script" type="Script" required>
+      <Expandable title="properties">
+        <ResponseField name="content" type="string" required>
+          Build script content (bash/bat)
+        </ResponseField>
+        <ResponseField name="env" type="IndexMap<String, String>">
+          Environment variables for the build
+        </ResponseField>
+        <ResponseField name="secrets" type="array">
+          Names of secret environment variables
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="noarch" type="NoArchKind">
+      No-arch configuration: `"python"` or `"generic"`
+    </ResponseField>
+    <ResponseField name="python" type="Python">
+      <Expandable title="properties">
+        <ResponseField name="entry_points" type="array">
+          Python entry points for executables
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Requirements Section
+
+<ResponseField name="requirements" type="ConditionalRequirements">
+  Dependencies with platform-specific conditionals
+  <Expandable title="structure">
+    <ResponseField name="build" type="ConditionalList<PackageDependency>">
+      Build-time dependencies (compilers, build tools)
+    </ResponseField>
+    <ResponseField name="host" type="ConditionalList<PackageDependency>">
+      Host dependencies (libraries to link against)
+    </ResponseField>
+    <ResponseField name="run" type="ConditionalList<PackageDependency>">
+      Runtime dependencies
+    </ResponseField>
+    <ResponseField name="run_constraints" type="ConditionalList<PackageDependency>">
+      Runtime constraints (packages that must be compatible if present)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### About Section
+
+<ResponseField name="about" type="About">
+  <Expandable title="properties">
+    <ResponseField name="homepage" type="Value<String>">
+      Project homepage URL
+    </ResponseField>
+    <ResponseField name="license" type="Value<String>">
+      SPDX license identifier
+    </ResponseField>
+    <ResponseField name="license_file" type="Vec<Value<String>>">
+      Paths to license files
+    </ResponseField>
+    <ResponseField name="description" type="Value<String>">
+      Package description
+    </ResponseField>
+    <ResponseField name="summary" type="Value<String>">
+      Short package summary
+    </ResponseField>
+    <ResponseField name="documentation" type="Value<String>">
+      Documentation URL
+    </ResponseField>
+    <ResponseField name="repository" type="Value<String>">
+      Source repository URL
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Tests Section
+
+<ResponseField name="tests" type="Vec<Test>">
+  Test configurations to validate the built package
+</ResponseField>
+
+### Extra Section
+
+<ResponseField name="extra" type="Extra">
+  Additional metadata not covered by standard fields
+</ResponseField>
+
+## Value and Conditional Types
+
+The IntermediateRecipe uses special types to support templates and conditionals:
+
+### Value\<T\>
+
+Can be either a concrete value or a Jinja template:
+
+```yaml
+# Concrete value
+name: my-package
+
+# Jinja template
+name: ${{ name | lower }}
+```
+
+### Conditional\<T\>
+
+Allows platform-specific values:
+
+```yaml
+- if: linux
+  then:
+    - gcc
+  else:
+    - clang
+```
+
+### ConditionalList\<T\>
+
+A list that can contain both regular items and conditionals:
+
+```yaml
+run:
+  - python >=3.8
+  - if: linux
+    then:
+      - libgcc-ng
+```
+
+## Example Implementation
+
+Here's a simplified backend implementation:
+
+```rust
+use pixi_build_backend::generated_recipe::{
+    GenerateRecipe, GeneratedRecipe, DefaultMetadataProvider
+};
+use recipe_stage0::recipe::{
+    IntermediateRecipe, Package, Build, Script, About, Value
+};
+
+#[async_trait]
+impl GenerateRecipe for MyBackend {
+    type Config = MyConfig;
+
+    async fn generate_recipe(
+        &self,
+        model: &ProjectModel,
+        config: &Self::Config,
+        manifest_path: PathBuf,
+        host_platform: Platform,
+        python_params: Option<PythonParams>,
+        variants: &HashSet<NormalizedKey>,
+        channels: Vec<ChannelUrl>,
+        cache_dir: Option<PathBuf>,
+    ) -> miette::Result<GeneratedRecipe> {
+        // Start with default recipe from model
+        let mut recipe = GeneratedRecipe::from_model(
+            model.clone(),
+            &mut DefaultMetadataProvider
+        )?;
+
+        // Customize build script
+        recipe.recipe.build.script = Script {
+            content: "cargo build --release".to_string(),
+            env: Default::default(),
+            secrets: Vec::new(),
+        };
+
+        // Add input globs
+        recipe.build_input_globs.insert("src/**/*.rs".to_string());
+        recipe.build_input_globs.insert("Cargo.toml".to_string());
+        recipe.metadata_input_globs.insert("Cargo.toml".to_string());
+
+        Ok(recipe)
+    }
+}
+```
+
+## Helper Function
+
+The `from_model()` helper provides a default recipe implementation:
+
+```rust
+pub fn from_model<M: MetadataProvider>(
+    model: ProjectModel,
+    provider: &mut M,
+) -> Result<GeneratedRecipe, GenerateRecipeError<M::Error>>
+```
+
+This function:
+- Extracts name and version from the model or metadata provider
+- Converts the target dependencies to conditional requirements
+- Populates the about section from model fields
+- Returns a basic recipe that can be customized further
+
+## Conversion to YAML
+
+The IntermediateRecipe can be serialized to YAML for debugging:
+
+```rust
+let yaml = recipe.to_yaml_pretty()?;
+println!("{}" yaml);
+```
+
+This generates a rattler-build compatible recipe file.

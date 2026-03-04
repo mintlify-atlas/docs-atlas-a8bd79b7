@@ -1,0 +1,605 @@
+---
+title: Developing Build Backends
+description: Guide for creating custom Pixi build backends
+---
+
+# Developing Your Own Build Backend
+
+Pixi's build system is designed to be extensible. You can create custom build backends to support new build systems, languages, or specialized workflows. This guide walks you through the process of developing a build backend.
+
+## Understanding Build Backends
+
+A build backend is an executable that follows a specific protocol to convert a project model into a rattler-build recipe.
+
+### Key Concepts
+
+<Card title="Protocol-Based Architecture" icon="network">
+Backends communicate with Pixi using JSON-RPC over stdin/stdout. This allows backends to be written in any language.
+</Card>
+
+<Card title="Project Model" icon="file-code">
+Pixi sends a standardized project model (parsed from `pixi.toml`) to the backend. This model contains package metadata, dependencies, and configuration.
+</Card>
+
+<Card title="Recipe Generation" icon="wand-magic-sparkles">
+The backend's job is to generate a valid rattler-build `recipe.yaml` based on the project model and backend-specific configuration.
+</Card>
+
+## Backend Implementation Options
+
+Pixi provides two primary ways to implement build backends:
+
+<Tabs>
+  <Tab title="Rust (Recommended)">
+    ### Using the Rust Backend Library
+    
+    The `pixi-build-backend` Rust crate provides the foundation for building backends in Rust.
+    
+    **Advantages:**
+    - Type-safe protocol implementation
+    - Rich ecosystem of existing backends to reference
+    - Excellent performance
+    - Built-in serialization/deserialization
+    
+    **Example backends:**
+    - `pixi-build-cmake` - CMake projects
+    - `pixi-build-rust` - Cargo/Rust projects
+    - `pixi-build-python` - Python packages (Rust implementation)
+  </Tab>
+  
+  <Tab title="Python">
+    ### Using the Python Backend Library
+    
+    The `pixi-build-backend` Python package (via `py-pixi-build-backend`) allows you to write backends in Python.
+    
+    **Advantages:**
+    - Easier to get started
+    - Good for prototyping
+    - Familiar for Python developers
+    - Access to Python ecosystem
+    
+    **Example backends:**
+    - `pixi-build-python` - Python implementation example
+    - `pixi-build-ros` - ROS packages
+  </Tab>
+</Tabs>
+
+## Creating a Python Backend
+
+Let's create a simple Python backend step by step.
+
+### Project Setup
+
+<Steps>
+
+<Step title="Create Project Structure">
+```bash
+mkdir my-pixi-backend
+cd my-pixi-backend
+
+# Create package structure
+mkdir -p my_pixi_backend
+touch my_pixi_backend/__init__.py
+touch my_pixi_backend/main.py
+touch my_pixi_backend/generator.py
+touch pyproject.toml
+```
+</Step>
+
+<Step title="Configure pyproject.toml">
+```toml
+[project]
+name = "my-pixi-backend"
+version = "0.1.0"
+description = "Custom Pixi build backend"
+requires-python = ">=3.8"
+dependencies = [
+    "pixi-build-backend>=0.1.0",
+]
+
+[project.scripts]
+my-pixi-backend = "my_pixi_backend.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+```
+</Step>
+
+<Step title="Implement the Generator">
+Create `my_pixi_backend/generator.py`:
+
+```python
+from pathlib import Path
+from typing import Dict, Any, Optional, List
+from pixi_build_backend.types.generated_recipe import (
+    GenerateRecipeProtocol,
+    GeneratedRecipe,
+)
+from pixi_build_backend.types.platform import Platform
+from pixi_build_backend.types.project_model import ProjectModel
+from pixi_build_backend.types.python_params import PythonParams
+from pixi_build_backend.types.intermediate_recipe import Script
+
+
+class MyBackendGenerator(GenerateRecipeProtocol):
+    """Custom backend generator."""
+
+    def generate_recipe(
+        self,
+        model: ProjectModel,
+        config: Dict[str, Any],
+        manifest_path: str,
+        host_platform: Platform,
+        python_params: Optional[PythonParams] = None,
+        channels: Optional[List[str]] = None,
+    ) -> GeneratedRecipe:
+        """Generate a recipe for the project."""
+        
+        # Create base recipe from the project model
+        generated_recipe = GeneratedRecipe.from_model(model)
+        
+        # Get the recipe to customize
+        recipe = generated_recipe.recipe
+        
+        # Add custom build script
+        build_script = self._create_build_script(config)
+        recipe.build.script = Script(
+            content=build_script,
+            env=config.get("env", {}),
+        )
+        
+        # Add required build dependencies
+        # For example, your build system might need make:
+        # recipe.requirements.build.append("make")
+        
+        return generated_recipe
+    
+    def _create_build_script(self, config: Dict[str, Any]) -> str:
+        """Create the build script."""
+        return """
+        # Your custom build commands here
+        echo "Building with custom backend"
+        # Add your build steps
+        """
+    
+    def extract_input_globs_from_build(
+        self, 
+        config: Dict[str, Any], 
+        workdir: Path, 
+        editable: bool
+    ) -> List[str]:
+        """Define which files should be included in the build."""
+        default_globs = [
+            "**/*.txt",
+            "**/*.md",
+            "src/**/*",
+        ]
+        
+        # Add extra globs from config
+        extra_globs = config.get("extra-input-globs", [])
+        
+        return default_globs + extra_globs
+    
+    def default_variants(
+        self, 
+        host_platform: Platform
+    ) -> Dict[str, Any]:
+        """Return default variant configuration."""
+        return {}
+```
+</Step>
+
+<Step title="Create Entry Point">
+Create `my_pixi_backend/main.py`:
+
+```python
+from .generator import MyBackendGenerator
+from pixi_build_backend.main import run_backend
+
+
+def main() -> None:
+    """Main entry point for the backend."""
+    generator = MyBackendGenerator()
+    run_backend(generator)
+
+
+if __name__ == "__main__":
+    main()
+```
+</Step>
+
+</Steps>
+
+### Testing Your Backend Locally
+
+Before publishing, test your backend locally:
+
+<Steps>
+
+<Step title="Install Backend Locally">
+```bash
+# From your backend directory
+pip install -e .
+
+# Verify installation
+which my-pixi-backend
+```
+</Step>
+
+<Step title="Create a Test Project">
+```bash
+mkdir test-project
+cd test-project
+
+# Create a simple pixi.toml
+cat > pixi.toml << EOF
+[package]
+name = "test-package"
+version = "0.1.0"
+
+[package.build]
+backend = { name = "my-pixi-backend", path = "../my-pixi-backend" }
+configuration = {}
+EOF
+```
+</Step>
+
+<Step title="Build the Test Project">
+```bash
+pixi build
+
+# Check the generated recipe
+cat .pixi/build/work/test-package--*/debug/recipe/*/recipe.yaml
+```
+</Step>
+
+</Steps>
+
+## Creating a Rust Backend
+
+For production backends, Rust is recommended due to performance and type safety.
+
+### Basic Rust Backend Structure
+
+```rust
+use pixi_build_backend::{
+    generated_recipe::{GenerateRecipe, GeneratedRecipe, DefaultMetadataProvider},
+    intermediate_backend::IntermediateBackendInstantiator,
+};
+use rattler_conda_types::Platform;
+use std::collections::BTreeSet;
+use std::path::PathBuf;
+
+#[derive(Default, Clone)]
+pub struct MyBackendGenerator {}
+
+#[async_trait::async_trait]
+impl GenerateRecipe for MyBackendGenerator {
+    type Config = MyBackendConfig;
+
+    async fn generate_recipe(
+        &self,
+        model: &pixi_build_types::ProjectModel,
+        config: &Self::Config,
+        manifest_path: PathBuf,
+        host_platform: Platform,
+        _python_params: Option<PythonParams>,
+        variants: &HashSet<NormalizedKey>,
+        channels: Vec<ChannelUrl>,
+        _cache_dir: Option<PathBuf>,
+    ) -> miette::Result<GeneratedRecipe> {
+        // Create base recipe from project model
+        let mut generated_recipe = GeneratedRecipe::from_model(
+            model.clone(), 
+            &mut DefaultMetadataProvider
+        )?;
+        
+        // Customize the recipe based on your build system
+        // ...
+        
+        Ok(generated_recipe)
+    }
+
+    fn extract_input_globs_from_build(
+        &self,
+        config: &Self::Config,
+        _workdir: impl AsRef<Path>,
+        _editable: bool,
+    ) -> miette::Result<BTreeSet<String>> {
+        // Define input file patterns
+        Ok(["src/**/*", "**/*.toml"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect())
+    }
+}
+
+#[tokio::main]
+pub async fn main() {
+    if let Err(err) = pixi_build_backend::cli::main(|log| {
+        IntermediateBackendInstantiator::<MyBackendGenerator>::new(
+            log, 
+            Arc::default()
+        )
+    })
+    .await
+    {
+        eprintln!("{err:?}");
+        std::process::exit(1);
+    }
+}
+```
+
+## Backend Configuration
+
+Define configuration options for your backend:
+
+### Python Configuration (using Pydantic)
+
+```python
+from pydantic import BaseModel
+from typing import Dict, List, Optional
+
+class MyBackendConfig(BaseModel):
+    """Configuration for my backend."""
+    
+    build_type: str = "release"
+    extra_args: List[str] = []
+    env: Dict[str, str] = {}
+    extra_input_globs: List[str] = []
+    enable_optimization: bool = True
+```
+
+### Rust Configuration (using Serde)
+
+```rust
+use serde::{Deserialize, Serialize};
+use indexmap::IndexMap;
+use pixi_build_backend::generated_recipe::BackendConfig;
+
+#[derive(Debug, Default, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct MyBackendConfig {
+    #[serde(default)]
+    pub build_type: String,
+    
+    #[serde(default)]
+    pub extra_args: Vec<String>,
+    
+    #[serde(default)]
+    pub env: IndexMap<String, String>,
+    
+    #[serde(default)]
+    pub extra_input_globs: Vec<String>,
+}
+
+impl BackendConfig for MyBackendConfig {
+    fn debug_dir(&self) -> Option<&Path> {
+        None
+    }
+    
+    fn merge_with_target_config(&self, target_config: &Self) -> miette::Result<Self> {
+        // Implement merging logic for target-specific configs
+        Ok(Self {
+            build_type: if target_config.build_type.is_empty() {
+                self.build_type.clone()
+            } else {
+                target_config.build_type.clone()
+            },
+            // ... merge other fields
+            ..Default::default()
+        })
+    }
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+
+<Accordion title="Follow Existing Patterns">
+
+Study existing backends in the repository:
+- `pixi-build-python` - Python package handling
+- `pixi-build-cmake` - Compiler integration
+- `pixi-build-rust` - Cargo manifest parsing
+
+Located in:
+- Rust: `~/workspace/source/crates/`
+- Python: `~/workspace/source/py-pixi-build-backend/examples/`
+
+</Accordion>
+
+<Accordion title="Handle Dependencies Correctly">
+
+```python
+# Add dependencies from the project model
+model_dependencies = model.dependencies(Some(host_platform))
+
+# Add your build tool dependencies
+if "my-build-tool" not in model_dependencies.build:
+    recipe.requirements.build.append("my-build-tool")
+```
+
+</Accordion>
+
+<Accordion title="Support Compilers When Needed">
+
+If your build system uses compiled languages:
+
+```python
+from pixi_build_backend.compilers import add_compilers_to_requirements
+
+# Add configured compilers
+compilers = config.get("compilers", ["c", "cxx"])
+add_compilers_to_requirements(
+    compilers,
+    recipe.requirements.build,
+    model_dependencies,
+    host_platform,
+)
+```
+
+</Accordion>
+
+<Accordion title="Write Tests">
+
+Test your backend with various project configurations:
+
+```python
+import pytest
+from my_pixi_backend.generator import MyBackendGenerator
+
+def test_basic_recipe_generation():
+    generator = MyBackendGenerator()
+    model = ProjectModel(name="test", version="1.0.0")
+    
+    recipe = generator.generate_recipe(
+        model=model,
+        config={},
+        manifest_path="/tmp/test",
+        host_platform=Platform("linux-64"),
+    )
+    
+    assert recipe.recipe.package.name == "test"
+    assert recipe.recipe.package.version == "1.0.0"
+```
+
+</Accordion>
+
+<Accordion title="Document Configuration Options">
+
+Provide clear documentation for all configuration options:
+
+```toml
+# Example in your README
+[package.build]
+backend = { name = "my-pixi-backend", version = "*" }
+configuration = {
+  build-type = "release",        # Options: debug, release
+  enable-optimization = true,    # Enable compiler optimizations
+  extra-args = ["--verbose"],   # Extra arguments for build command
+}
+```
+
+</Accordion>
+
+</AccordionGroup>
+
+## Publishing Your Backend
+
+<Steps>
+
+<Step title="Build as Conda Package">
+Create a `pixi.toml` for your backend:
+
+```toml
+[package]
+name = "my-pixi-backend"
+version = "0.1.0"
+
+[package.build]
+backend = { name = "pixi-build-python", version = "*" }
+
+[package.run-dependencies]
+pixi-build-api-version = ">=4,<5"
+```
+</Step>
+
+<Step title="Test Installation">
+```bash
+# Build your backend as a conda package
+pixi build
+
+# Test installation
+pixi global install ./output/my-pixi-backend-*.conda
+```
+</Step>
+
+<Step title="Publish to Channel">
+```bash
+# Upload to conda-forge or your own channel
+rattler-build upload ./output/my-pixi-backend-*.conda \
+  --channel https://prefix.dev/your-channel
+```
+</Step>
+
+</Steps>
+
+## Development Workflow
+
+When developing backends in the pixi-build-backends repository:
+
+```bash
+# Clone the repository
+git clone https://github.com/prefix-dev/pixi-build-backends
+cd pixi-build-backends
+
+# Install development dependencies
+pixi install
+
+# Build backends
+pixi run build
+
+# Install your backend locally for testing
+pixi run install-pixi-build-python  # or your backend
+
+# Run tests
+pixi run test
+```
+
+## Example: Examining Existing Backends
+
+Learn by exploring existing implementations:
+
+<CodeGroup>
+
+```bash Python Backend
+# Location: py-pixi-build-backend/examples/pixi-build-python/
+# Key files:
+# - pixi_build_python/python_generator.py  # Main generator
+# - pixi_build_python/build_script.py     # Build script generation
+# - pixi_build_python/utils.py            # Helper functions
+```
+
+```bash Rust Backend
+# Location: crates/pixi-build-cmake/
+# Key files:
+# - src/main.rs          # Entry point and GenerateRecipe impl
+# - src/config.rs        # Backend configuration
+# - src/build_script.rs  # Build script generation
+```
+
+</CodeGroup>
+
+## Resources
+
+<CardGroup cols={2}>
+  <Card title="Pixi Repository" icon="github" href="https://github.com/prefix-dev/pixi">
+    Main Pixi repository with build system documentation
+  </Card>
+  
+  <Card title="Build Backends Repo" icon="code" href="https://github.com/prefix-dev/pixi-build-backends">
+    Source code for all official backends
+  </Card>
+  
+  <Card title="Rattler Build" icon="hammer" href="https://rattler.build">
+    Documentation for the underlying build tool
+  </Card>
+  
+  <Card title="Discord Community" icon="discord" href="https://discord.gg/kKV8ZxyzY4">
+    Get help from the community
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration Guide" href="/guides/configuration" icon="gear">
+    Learn about backend configuration options
+  </Card>
+  <Card title="Debugging Guide" href="/guides/debugging" icon="bug">
+    Debug your backend implementation
+  </Card>
+</CardGroup>

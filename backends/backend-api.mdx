@@ -1,0 +1,766 @@
+---
+title: Backend API Reference
+description: Complete API reference for implementing Pixi Build backends
+---
+
+This reference documents the core traits, types, and functions required to implement a Pixi Build backend.
+
+## Core Traits
+
+### GenerateRecipe
+
+The primary trait that defines a build backend. All backends must implement this trait.
+
+```rust
+#[async_trait::async_trait]
+pub trait GenerateRecipe {
+    type Config: BackendConfig;
+    
+    async fn generate_recipe(
+        &self,
+        model: &ProjectModel,
+        config: &Self::Config,
+        manifest_path: PathBuf,
+        host_platform: Platform,
+        python_params: Option<PythonParams>,
+        variants: &HashSet<NormalizedKey>,
+        channels: Vec<ChannelUrl>,
+        cache_dir: Option<PathBuf>,
+    ) -> miette::Result<GeneratedRecipe>;
+    
+    fn extract_input_globs_from_build(
+        &self,
+        config: &Self::Config,
+        workdir: impl AsRef<Path>,
+        editable: bool,
+    ) -> miette::Result<BTreeSet<String>>;
+    
+    fn default_variants(
+        &self,
+        host_platform: Platform,
+    ) -> miette::Result<BTreeMap<NormalizedKey, Vec<Variable>>>;
+}
+```
+
+<Accordion title="Example: CMake Backend">
+```rust
+use pixi_build_backend::generated_recipe::GenerateRecipe;
+
+#[derive(Default, Clone)]
+pub struct CMakeGenerator {}
+
+#[async_trait::async_trait]
+impl GenerateRecipe for CMakeGenerator {
+    type Config = CMakeBackendConfig;
+    
+    async fn generate_recipe(
+        &self,
+        model: &pixi_build_types::ProjectModel,
+        config: &Self::Config,
+        manifest_path: PathBuf,
+        host_platform: Platform,
+        _python_params: Option<PythonParams>,
+        variants: &HashSet<NormalizedKey>,
+        _channels: Vec<ChannelUrl>,
+        _cache_dir: Option<PathBuf>,
+    ) -> miette::Result<GeneratedRecipe> {
+        let manifest_root = if manifest_path.is_file() {
+            manifest_path.parent()
+                .ok_or_else(|| miette::Error::msg("No parent directory"))?
+                .to_path_buf()
+        } else {
+            manifest_path.clone()
+        };
+        
+        let mut generated_recipe = GeneratedRecipe::from_model(
+            model.clone(),
+            &mut DefaultMetadataProvider,
+        ).into_diagnostic()?;
+        
+        // Add compilers and build tools
+        let compilers = config.compilers.clone()
+            .unwrap_or_else(|| vec!["cxx".to_string()]);
+        
+        pixi_build_backend::compilers::add_compilers_to_requirements(
+            &compilers,
+            &mut generated_recipe.recipe.requirements.build,
+            &model.dependencies(Some(host_platform)),
+            &host_platform,
+        );
+        
+        Ok(generated_recipe)
+    }
+    
+    // ... other methods
+}
+```
+</Accordion>
+
+#### Methods
+
+<ParamField path="generate_recipe" type="async fn" required>
+  Generates an intermediate recipe from a project model.
+  
+  **Parameters:**
+  - `model` - The project model containing package metadata and dependencies
+  - `config` - Backend-specific configuration from `pixi.toml`
+  - `manifest_path` - Path to the project manifest file
+  - `host_platform` - Target platform for the build
+  - `python_params` - Optional Python-specific parameters (editable installs, etc.)
+  - `variants` - Available variant names that may influence recipe generation
+  - `channels` - Conda channels being used for the build
+  - `cache_dir` - Optional cache directory for HTTP responses or other cached data
+  
+  **Returns:** `GeneratedRecipe` containing the recipe and input globs
+</ParamField>
+
+<ParamField path="extract_input_globs_from_build" type="fn">
+  Returns glob patterns for files that should trigger a rebuild.
+  
+  **Parameters:**
+  - `config` - Backend configuration
+  - `workdir` - Working directory for the build
+  - `editable` - Whether this is an editable install
+  
+  **Returns:** Set of glob patterns (e.g., `**/*.rs`, `Cargo.toml`)
+  
+  **Example:**
+  ```rust
+  fn extract_input_globs_from_build(
+      &self,
+      config: &Self::Config,
+      _workdir: impl AsRef<Path>,
+      _editable: bool,
+  ) -> miette::Result<BTreeSet<String>> {
+      Ok([
+          "**/*.c",
+          "**/*.h",
+          "CMakeLists.txt",
+      ]
+      .iter()
+      .map(|s| s.to_string())
+      .chain(config.extra_input_globs.clone())
+      .collect())
+  }
+  ```
+</ParamField>
+
+<ParamField path="default_variants" type="fn">
+  Returns default variant configuration for the backend.
+  
+  Allows backends to override rattler-build defaults (e.g., use VS2022 instead of VS2017 on Windows).
+  
+  **Parameters:**
+  - `host_platform` - Target platform for the build
+  
+  **Returns:** Map of variant names to possible values
+  
+  **Example:**
+  ```rust
+  fn default_variants(
+      &self,
+      host_platform: Platform,
+  ) -> miette::Result<BTreeMap<NormalizedKey, Vec<Variable>>> {
+      let mut variants = BTreeMap::new();
+      
+      if host_platform.is_windows() {
+          variants.insert(
+              NormalizedKey::from("c_compiler"),
+              vec!["vs2022".into()]
+          );
+          variants.insert(
+              NormalizedKey::from("cxx_compiler"),
+              vec!["vs2022".into()]
+          );
+      }
+      
+      Ok(variants)
+  }
+  ```
+</ParamField>
+
+### BackendConfig
+
+Trait for backend configuration that can be deserialized from `pixi.toml`.
+
+```rust
+pub trait BackendConfig: DeserializeOwned + Clone {
+    fn debug_dir(&self) -> Option<&Path>;
+    fn merge_with_target_config(&self, target_config: &Self) -> miette::Result<Self>;
+}
+```
+
+<Accordion title="Example: Rust Backend Config">
+```rust
+use indexmap::IndexMap;
+use pixi_build_backend::generated_recipe::BackendConfig;
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct RustBackendConfig {
+    #[serde(default)]
+    pub extra_args: Vec<String>,
+    
+    #[serde(default)]
+    pub env: IndexMap<String, String>,
+    
+    pub debug_dir: Option<PathBuf>,
+    
+    #[serde(default)]
+    pub extra_input_globs: Vec<String>,
+    
+    pub compilers: Option<Vec<String>>,
+}
+
+impl BackendConfig for RustBackendConfig {
+    fn debug_dir(&self) -> Option<&Path> {
+        self.debug_dir.as_deref()
+    }
+    
+    fn merge_with_target_config(&self, target_config: &Self) -> miette::Result<Self> {
+        if target_config.debug_dir.is_some() {
+            miette::bail!("`debug_dir` cannot have a target specific value");
+        }
+        
+        Ok(Self {
+            extra_args: if target_config.extra_args.is_empty() {
+                self.extra_args.clone()
+            } else {
+                target_config.extra_args.clone()
+            },
+            env: {
+                let mut merged = self.env.clone();
+                merged.extend(target_config.env.clone());
+                merged
+            },
+            debug_dir: self.debug_dir.clone(),
+            extra_input_globs: if target_config.extra_input_globs.is_empty() {
+                self.extra_input_globs.clone()
+            } else {
+                target_config.extra_input_globs.clone()
+            },
+            compilers: target_config.compilers.clone()
+                .or_else(|| self.compilers.clone()),
+        })
+    }
+}
+```
+</Accordion>
+
+#### Methods
+
+<ParamField path="debug_dir" type="fn">
+  Returns the debug directory for logging internal state.
+</ParamField>
+
+<ParamField path="merge_with_target_config" type="fn" required>
+  Merges base configuration with platform-specific configuration.
+  
+  Target-specific values typically override base values. This enables users to specify different settings per platform:
+  
+  ```toml
+  [build-system.backend-config]
+  compilers = ["c", "cxx"]
+  
+  [build-system.backend-config.target.linux-64]
+  extra-args = ["--optimize"]
+  ```
+</ParamField>
+
+### ProjectModel
+
+Trait for accessing project metadata and dependencies.
+
+```rust
+pub trait ProjectModel {
+    type Targets: Targets;
+    
+    fn targets(&self) -> Option<&Self::Targets>;
+    fn dependencies(&self, platform: Option<Platform>) -> Dependencies<'_, <Self::Targets as Targets>::Spec>;
+    fn used_variants(&self, platform: Option<Platform>) -> HashSet<NormalizedKey>;
+    fn name(&self) -> Option<&String>;
+    fn version(&self) -> &Option<Version>;
+}
+```
+
+<Accordion title="Usage Example">
+```rust
+use pixi_build_backend::traits::ProjectModel;
+use rattler_conda_types::Platform;
+
+// Get platform-specific dependencies
+let deps = model.dependencies(Some(Platform::Linux64));
+
+// Iterate over build dependencies
+for (name, spec) in deps.build.iter() {
+    println!("Build dep: {} = {:?}", name.as_ref(), spec);
+}
+
+// Check if a dependency is present
+let openssl_name = pixi_build_types::SourcePackageName::from("openssl");
+if deps.host.contains_key(&openssl_name) {
+    println!("OpenSSL is a host dependency");
+}
+
+// Get variants used in dependencies
+let variants = model.used_variants(Some(Platform::Linux64));
+for variant in variants {
+    println!("Used variant: {}", variant);
+}
+```
+</Accordion>
+
+#### Methods
+
+<ParamField path="targets" type="fn">
+  Returns the targets configuration (default target and platform-specific targets).
+</ParamField>
+
+<ParamField path="dependencies" type="fn">
+  Returns platform-filtered dependencies.
+  
+  **Parameters:**
+  - `platform` - Optional platform to filter dependencies by
+  
+  **Returns:** `Dependencies` struct with `build`, `host`, and `run` dependency maps
+</ParamField>
+
+<ParamField path="used_variants" type="fn">
+  Returns the set of variant names used in dependencies.
+  
+  Dependencies like `python = "*"` are considered variants and will be included.
+</ParamField>
+
+<ParamField path="name" type="fn">
+  Returns the package name, if specified.
+</ParamField>
+
+<ParamField path="version" type="fn">
+  Returns the package version, if specified.
+</ParamField>
+
+### PackageSpec
+
+Trait for package specification behavior.
+
+```rust
+pub trait PackageSpec: Send {
+    type SourceSpec: PackageSourceSpec;
+    
+    fn can_be_used_as_variant(&self) -> bool;
+    fn to_match_spec(
+        &self,
+        name: PackageName,
+    ) -> miette::Result<(MatchSpec, Option<Self::SourceSpec>)>;
+}
+```
+
+<Accordion title="Implementation Details">
+The `PackageSpec` trait handles both binary (conda) and source package specifications:
+
+```rust
+impl PackageSpec for pixi_build_types::PackageSpec {
+    type SourceSpec = pixi_build_types::SourcePackageSpec;
+    
+    fn can_be_used_as_variant(&self) -> bool {
+        match self {
+            pixi_build_types::PackageSpec::Binary(spec) => {
+                // Only wildcard versions without constraints can be variants
+                spec.version == Some(VersionSpec::Any)
+                    && spec.build.is_none()
+                    && spec.build_number.is_none()
+                    && spec.file_name.is_none()
+                    // ... other fields
+            }
+            _ => false,
+        }
+    }
+    
+    fn to_match_spec(
+        &self,
+        name: PackageName,
+    ) -> miette::Result<(MatchSpec, Option<Self::SourceSpec>)> {
+        match self {
+            pixi_build_types::PackageSpec::Binary(binary_spec) => {
+                let match_spec = MatchSpec::from_nameless(
+                    binary_spec.to_nameless(),
+                    Some(PackageNameMatcher::Exact(name)),
+                );
+                Ok((match_spec, None))
+            }
+            pixi_build_types::PackageSpec::Source(source_spec) => {
+                Ok((
+                    MatchSpec {
+                        name: Some(PackageNameMatcher::Exact(name)),
+                        ..Default::default()
+                    },
+                    Some(source_spec.clone()),
+                ))
+            }
+            _ => miette::bail!("Unsupported package spec type"),
+        }
+    }
+}
+```
+</Accordion>
+
+### Targets
+
+Trait representing project targets (default and platform-specific).
+
+```rust
+pub trait Targets {
+    type Selector: TargetSelector;
+    type Target;
+    type Spec: PackageSpec;
+    
+    fn default_target(&self) -> Option<&Self::Target>;
+    fn empty_spec() -> Self::Spec;
+    fn targets(&self) -> impl Iterator<Item = (&Self::Selector, &Self::Target)>;
+    fn dependencies(&self, platform: Option<Platform>) -> Dependencies<'_, Self::Spec>;
+    fn run_dependencies(&self, platform: Option<Platform>) -> IndexMap<&SourcePackageName, &Self::Spec>;
+    fn host_dependencies(&self, platform: Option<Platform>) -> IndexMap<&SourcePackageName, &Self::Spec>;
+    fn build_dependencies(&self, platform: Option<Platform>) -> IndexMap<&SourcePackageName, &Self::Spec>;
+    fn resolve(&self, platform: Option<Platform>) -> impl Iterator<Item = &Self::Target>;
+}
+```
+
+### TargetSelector
+
+Trait for matching platform selectors.
+
+```rust
+pub trait TargetSelector {
+    fn matches(&self, platform: Platform) -> bool;
+}
+```
+
+<Accordion title="Implementation for pixi_build_types::TargetSelector">
+```rust
+impl TargetSelector for pixi_build_types::TargetSelector {
+    fn matches(&self, platform: Platform) -> bool {
+        match self {
+            pixi_build_types::TargetSelector::Platform(p) => {
+                p == &platform.to_string()
+            }
+            pixi_build_types::TargetSelector::Linux => platform.is_linux(),
+            pixi_build_types::TargetSelector::Unix => platform.is_unix(),
+            pixi_build_types::TargetSelector::Win => platform.is_windows(),
+            pixi_build_types::TargetSelector::MacOs => platform.is_osx(),
+        }
+    }
+}
+```
+</Accordion>
+
+## Protocol Traits
+
+### Protocol
+
+The main protocol trait for handling build requests.
+
+```rust
+#[async_trait::async_trait]
+pub trait Protocol {
+    async fn conda_outputs(
+        &self,
+        params: CondaOutputsParams,
+    ) -> miette::Result<CondaOutputsResult>;
+    
+    async fn conda_build_v1(
+        &self,
+        params: CondaBuildV1Params,
+    ) -> miette::Result<CondaBuildV1Result>;
+}
+```
+
+<Note>
+Most backends don't need to implement this directly. Use `IntermediateBackendInstantiator` instead, which handles protocol communication automatically.
+</Note>
+
+### ProtocolInstantiator
+
+Trait for creating protocol instances.
+
+```rust
+#[async_trait::async_trait]
+pub trait ProtocolInstantiator: Send + Sync + 'static {
+    async fn negotiate_capabilities(
+        params: NegotiateCapabilitiesParams,
+    ) -> miette::Result<NegotiateCapabilitiesResult>;
+    
+    async fn initialize(
+        &self,
+        params: InitializeParams,
+    ) -> miette::Result<(Box<dyn Protocol + Send + Sync + 'static>, InitializeResult)>;
+}
+```
+
+## Helper Types
+
+### GeneratedRecipe
+
+The result of recipe generation.
+
+```rust
+pub struct GeneratedRecipe {
+    pub recipe: IntermediateRecipe,
+    pub metadata_input_globs: BTreeSet<String>,
+    pub build_input_globs: BTreeSet<String>,
+}
+
+impl GeneratedRecipe {
+    pub fn from_model<M: MetadataProvider>(
+        model: ProjectModel,
+        provider: &mut M,
+    ) -> Result<Self, GenerateRecipeError<M::Error>>;
+}
+```
+
+<ParamField path="recipe" type="IntermediateRecipe">
+  The generated rattler-build recipe
+</ParamField>
+
+<ParamField path="metadata_input_globs" type="BTreeSet<String>">
+  Globs for files that affect package metadata (e.g., `Cargo.toml`)
+</ParamField>
+
+<ParamField path="build_input_globs" type="BTreeSet<String>">
+  Globs for files that trigger rebuilds (e.g., `**/*.rs`)
+</ParamField>
+
+### Dependencies
+
+Container for build, host, and run dependencies.
+
+```rust
+pub struct Dependencies<'a, S> {
+    pub run: IndexMap<&'a SourcePackageName, &'a S>,
+    pub host: IndexMap<&'a SourcePackageName, &'a S>,
+    pub build: IndexMap<&'a SourcePackageName, &'a S>,
+}
+
+impl<'a, S> Dependencies<'a, S> {
+    pub fn contains(&self, name: &SourcePackageName) -> bool;
+    pub fn build_and_host_names(&self) -> impl Iterator<Item = &str>;
+}
+```
+
+<Accordion title="Usage Example">
+```rust
+let deps = model.dependencies(Some(Platform::Linux64));
+
+// Check if a package is in any dependency section
+let pkg_name = pixi_build_types::SourcePackageName::from("cmake");
+if deps.contains(&pkg_name) {
+    println!("CMake is already a dependency");
+}
+
+// Get all build and host dependency names
+for name in deps.build_and_host_names() {
+    println!("Build/host dependency: {}", name);
+}
+```
+</Accordion>
+
+### MetadataProvider
+
+Trait for extracting metadata from build system manifests.
+
+```rust
+pub trait MetadataProvider {
+    type Error: Diagnostic + 'static;
+    
+    fn name(&self) -> Result<Option<String>, Self::Error>;
+    fn version(&self) -> Result<Option<Version>, Self::Error>;
+    fn description(&self) -> Result<Option<String>, Self::Error>;
+    fn license(&self) -> Result<Option<String>, Self::Error>;
+    fn homepage(&self) -> Result<Option<String>, Self::Error>;
+    fn repository(&self) -> Result<Option<String>, Self::Error>;
+    fn documentation(&self) -> Result<Option<String>, Self::Error>;
+    fn input_globs(&self) -> BTreeSet<String>;
+}
+```
+
+<Accordion title="Example: Cargo Metadata Provider">
+```rust
+use pixi_build_backend::generated_recipe::MetadataProvider;
+use cargo_toml::Manifest;
+use std::path::Path;
+
+pub struct CargoMetadataProvider {
+    manifest: Option<Manifest>,
+    input_globs: BTreeSet<String>,
+}
+
+impl CargoMetadataProvider {
+    pub fn new(root: &Path) -> Self {
+        let manifest_path = root.join("Cargo.toml");
+        let manifest = Manifest::from_path(&manifest_path).ok();
+        
+        Self {
+            manifest,
+            input_globs: BTreeSet::from(["Cargo.toml".to_string()]),
+        }
+    }
+}
+
+impl MetadataProvider for CargoMetadataProvider {
+    type Error = std::io::Error;
+    
+    fn name(&self) -> Result<Option<String>, Self::Error> {
+        Ok(self.manifest.as_ref()
+            .and_then(|m| m.package.as_ref())
+            .map(|p| p.name.clone()))
+    }
+    
+    fn version(&self) -> Result<Option<Version>, Self::Error> {
+        Ok(self.manifest.as_ref()
+            .and_then(|m| m.package.as_ref())
+            .and_then(|p| p.version.get())
+            .and_then(|v| v.parse().ok()))
+    }
+    
+    fn description(&self) -> Result<Option<String>, Self::Error> {
+        Ok(self.manifest.as_ref()
+            .and_then(|m| m.package.as_ref())
+            .and_then(|p| p.description.as_ref())
+            .and_then(|d| d.get())
+            .map(|s| s.to_string()))
+    }
+    
+    fn license(&self) -> Result<Option<String>, Self::Error> {
+        Ok(self.manifest.as_ref()
+            .and_then(|m| m.package.as_ref())
+            .and_then(|p| p.license.as_ref())
+            .and_then(|l| l.get())
+            .map(|s| s.to_string()))
+    }
+    
+    fn input_globs(&self) -> BTreeSet<String> {
+        self.input_globs.clone()
+    }
+    
+    // ... other methods
+}
+```
+</Accordion>
+
+## Utility Functions
+
+### Compiler Management
+
+```rust
+use pixi_build_backend::compilers;
+
+// Add compilers to build requirements
+compilers::add_compilers_to_requirements(
+    &["c".to_string(), "cxx".to_string()],
+    &mut requirements.build,
+    &model_dependencies,
+    &host_platform,
+);
+
+// Add stdlib requirements
+compilers::add_stdlib_to_requirements(
+    &["c".to_string(), "cxx".to_string()],
+    &mut requirements.build,
+    variants,
+);
+```
+
+<ParamField path="add_compilers_to_requirements" type="fn">
+  Adds compiler requirements to build dependencies.
+  
+  **Parameters:**
+  - `compilers` - List of compiler names (e.g., `["c", "cxx", "rust", "cuda"]`)
+  - `requirements` - Mutable reference to build requirements
+  - `dependencies` - Project dependencies to check for existing compilers
+  - `platform` - Target platform
+  
+  Only adds compilers that aren't already in the dependencies.
+</ParamField>
+
+<ParamField path="add_stdlib_to_requirements" type="fn">
+  Adds standard library requirements based on compilers and variants.
+  
+  **Parameters:**
+  - `compilers` - List of compiler names
+  - `requirements` - Mutable reference to build requirements
+  - `variants` - Available variant names
+</ParamField>
+
+### IntermediateBackendInstantiator
+
+Helper for creating backends with automatic protocol handling.
+
+```rust
+use pixi_build_backend::intermediate_backend::IntermediateBackendInstantiator;
+use std::sync::Arc;
+
+#[tokio::main]
+pub async fn main() {
+    if let Err(err) = pixi_build_backend::cli::main(|log| {
+        IntermediateBackendInstantiator::<MyGenerator>::new(log, Arc::default())
+    })
+    .await
+    {
+        eprintln!("{err:?}");
+        std::process::exit(1);
+    }
+}
+```
+
+This automatically handles:
+- JSON-RPC protocol communication
+- Capability negotiation
+- Initialization
+- Recipe generation
+- Build execution
+
+## Type Aliases
+
+```rust
+// From pixi_build_types
+pub type SourcePackageName = String;
+pub type ProjectModel = pixi_build_types::ProjectModel;
+pub type PackageSpec = pixi_build_types::PackageSpec;
+
+// From rattler
+pub use rattler_build::NormalizedKey;
+pub use rattler_build::recipe::variable::Variable;
+pub use rattler_conda_types::{Platform, Version, ChannelUrl};
+```
+
+## Error Handling
+
+All backend functions should return `miette::Result<T>` for consistent error reporting:
+
+```rust
+use miette::{IntoDiagnostic, Result};
+
+fn parse_manifest(path: &Path) -> Result<Manifest> {
+    std::fs::read_to_string(path)
+        .into_diagnostic()?
+        .parse()
+        .into_diagnostic()
+}
+
+// Use bail! for error messages
+if manifest.name.is_empty() {
+    miette::bail!("Package name cannot be empty");
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Creating Backends" icon="code" href="/backends/creating-backends">
+    Step-by-step guide to building a backend
+  </Card>
+  <Card title="Protocol Specification" icon="exchange" href="/protocol">
+    JSON-RPC protocol documentation
+  </Card>
+</CardGroup>

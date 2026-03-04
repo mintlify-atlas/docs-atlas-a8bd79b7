@@ -1,0 +1,529 @@
+---
+title: Build Backend Protocol
+description: JSON-RPC protocol specification for Pixi build backends
+---
+
+Pixi build backends communicate with Pixi using a standardized JSON-RPC 2.0 protocol over standard input/output (stdin/stdout). This protocol defines how Pixi invokes backends, passes configuration, and receives build artifacts.
+
+## Protocol Overview
+
+The protocol uses JSON-RPC 2.0 for structured communication between Pixi and build backends. All messages are exchanged over stdin/stdout, with the backend acting as a JSON-RPC server.
+
+<Info>
+  The protocol implementation can be found in the source code:
+  - Protocol traits: `/home/daytona/workspace/source/crates/pixi-build-backend/src/protocol.rs`
+  - Server implementation: `/home/daytona/workspace/source/crates/pixi-build-backend/src/server.rs`
+</Info>
+
+## Communication Flow
+
+The backend lifecycle follows this sequence:
+
+<Steps>
+  <Step title="Process Startup">
+    Pixi spawns the backend executable and establishes JSON-RPC communication over stdin/stdout.
+  </Step>
+  
+  <Step title="Capability Negotiation">
+    Pixi sends `negotiate_capabilities` to establish protocol version compatibility.
+    
+    ```json
+    {
+      "jsonrpc": "2.0",
+      "method": "negotiate_capabilities",
+      "params": {
+        "protocol_version": "1.0"
+      },
+      "id": 1
+    }
+    ```
+  </Step>
+  
+  <Step title="Initialization">
+    Pixi sends `initialize` with the complete project model and build configuration.
+    
+    ```json
+    {
+      "jsonrpc": "2.0",
+      "method": "initialize",
+      "params": {
+        "project_model": {
+          "name": "my-package",
+          "version": "1.0.0",
+          "manifest_path": "/path/to/pixi.toml",
+          "configuration": { ... }
+        },
+        "cache_directory": "/path/to/cache",
+        "work_directory": "/path/to/work"
+      },
+      "id": 2
+    }
+    ```
+  </Step>
+  
+  <Step title="Output Discovery">
+    Pixi calls `conda_outputs` to discover all possible package outputs (variants).
+    
+    ```json
+    {
+      "jsonrpc": "2.0",
+      "method": "conda_outputs",
+      "params": {
+        "work_directory": "/path/to/work",
+        "variant_configuration": { ... }
+      },
+      "id": 3
+    }
+    ```
+  </Step>
+  
+  <Step title="Package Building">
+    Pixi calls `conda_build_v1` to build specific package variants.
+    
+    ```json
+    {
+      "jsonrpc": "2.0",
+      "method": "conda_build_v1",
+      "params": {
+        "work_directory": "/path/to/work",
+        "output_directory": "/path/to/output",
+        "variant": { ... }
+      },
+      "id": 4
+    }
+    ```
+  </Step>
+</Steps>
+
+## Protocol Methods
+
+Backends must implement four core JSON-RPC methods:
+
+### negotiate_capabilities
+
+Establishes protocol version compatibility between Pixi and the backend.
+
+<ParamField path="params.protocol_version" type="string" required>
+  The protocol version Pixi is using (currently "1.0")
+</ParamField>
+
+<ResponseField name="result" type="object">
+  <Expandable title="properties">
+    <ResponseField name="protocol_version" type="string">
+      The protocol version the backend supports
+    </ResponseField>
+    <ResponseField name="capabilities" type="object">
+      Optional capability flags the backend supports
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+**Implementation Reference:**
+
+From `/home/daytona/workspace/source/crates/pixi-build-backend/src/protocol.rs:12-16`:
+
+```rust
+async fn negotiate_capabilities(
+    params: NegotiateCapabilitiesParams,
+) -> miette::Result<NegotiateCapabilitiesResult>;
+```
+
+### initialize
+
+Receives the project configuration and sets up the backend state.
+
+<ParamField path="params.project_model" type="object" required>
+  Complete project configuration from `pixi.toml`, including:
+  - Package metadata (name, version, description)
+  - Build configuration (`[package.build.config]`)
+  - Dependencies (build, host, run)
+  - Target-specific overrides
+</ParamField>
+
+<ParamField path="params.cache_directory" type="string" required>
+  Directory where the backend can cache persistent data
+</ParamField>
+
+<ParamField path="params.work_directory" type="string" required>
+  Working directory for the build process
+</ParamField>
+
+<ResponseField name="result" type="object">
+  <Expandable title="properties">
+    <ResponseField name="status" type="string">
+      Initialization status ("success" or error details)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+**Implementation Reference:**
+
+From `/home/daytona/workspace/source/crates/pixi-build-backend/src/protocol.rs:18-23`:
+
+```rust
+async fn initialize(
+    &self,
+    params: InitializeParams,
+) -> miette::Result<(Box<dyn Protocol + Send + Sync + 'static>, InitializeResult)>;
+```
+
+<Note>
+  The `initialize` method returns a protocol endpoint that handles subsequent requests. This allows backends to maintain state between protocol calls.
+</Note>
+
+### conda_outputs
+
+Determines all possible output packages based on build variants.
+
+<ParamField path="params.work_directory" type="string" required>
+  Working directory for the build
+</ParamField>
+
+<ParamField path="params.variant_configuration" type="object">
+  Build variant configuration (compiler versions, platforms, etc.)
+  
+  Example:
+  ```json
+  {
+    "c_compiler": ["gcc", "clang"],
+    "c_compiler_version": ["11.4", "14.0"]
+  }
+  ```
+</ParamField>
+
+<ResponseField name="result" type="object">
+  <Expandable title="properties">
+    <ResponseField name="outputs" type="array">
+      List of output package specifications, each containing:
+      - `name`: Package name
+      - `version`: Package version
+      - `variant`: Specific variant configuration for this output
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+**Implementation Reference:**
+
+From `/home/daytona/workspace/source/crates/pixi-build-backend/src/protocol.rs:31-36`:
+
+```rust
+async fn conda_outputs(
+    &self,
+    _params: CondaOutputsParams,
+) -> miette::Result<CondaOutputsResult> {
+    unimplemented!("conda_outputs not implemented");
+}
+```
+
+<Warning>
+  Backends that don't implement `conda_outputs` will return an "unimplemented" error. All production backends should implement this method to support variant builds.
+</Warning>
+
+### conda_build_v1
+
+Executes the actual build process for a specific package variant.
+
+<ParamField path="params.work_directory" type="string" required>
+  Working directory for the build
+</ParamField>
+
+<ParamField path="params.output_directory" type="string" required>
+  Directory where the resulting conda package should be placed
+</ParamField>
+
+<ParamField path="params.variant" type="object">
+  Specific variant configuration to build
+  
+  Example:
+  ```json
+  {
+    "c_compiler": "gcc",
+    "c_compiler_version": "11.4",
+    "target_platform": "linux-64"
+  }
+  ```
+</ParamField>
+
+<ResponseField name="result" type="object">
+  <Expandable title="properties">
+    <ResponseField name="packages" type="array">
+      List of built package files (absolute paths to `.conda` or `.tar.bz2` files)
+    </ResponseField>
+    <ResponseField name="metadata" type="object">
+      Optional build metadata (build time, dependencies used, etc.)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+**Implementation Reference:**
+
+From `/home/daytona/workspace/source/crates/pixi-build-backend/src/protocol.rs:39-44`:
+
+```rust
+async fn conda_build_v1(
+    &self,
+    _params: CondaBuildV1Params,
+) -> miette::Result<CondaBuildV1Result> {
+    unimplemented!("conda_build_v1 not implemented");
+}
+```
+
+## Error Handling
+
+The protocol uses standard JSON-RPC error responses:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "error": {
+    "code": -32000,
+    "message": "Build failed: compilation error",
+    "data": {
+      "severity": "error",
+      "causes": [...],
+      "help": "Check compiler configuration"
+    }
+  },
+  "id": 4
+}
+```
+
+<ParamField path="error.code" type="number">
+  Standard JSON-RPC error code:
+  - `-32700`: Parse error
+  - `-32600`: Invalid request
+  - `-32601`: Method not found
+  - `-32000`: Backend-specific error (used by build backends)
+</ParamField>
+
+<ParamField path="error.message" type="string">
+  Human-readable error message
+</ParamField>
+
+<ParamField path="error.data" type="object">
+  Additional error information using the `miette` diagnostic format:
+  - `severity`: Error severity level
+  - `causes`: Chain of error causes
+  - `help`: Suggested remediation
+</ParamField>
+
+From `/home/daytona/workspace/source/crates/pixi-build-backend/src/server.rs:212-224`:
+
+```rust
+fn convert_error(err: miette::Report) -> jsonrpc_core::Error {
+    let rendered = JSONReportHandler::new();
+    let mut json_str = String::new();
+    rendered
+        .render_report(&mut json_str, err.as_ref())
+        .expect("failed to convert error to json");
+    let data = serde_json::from_str(&json_str).expect("failed to parse json error");
+    jsonrpc_core::Error {
+        code: jsonrpc_core::ErrorCode::ServerError(-32000),
+        message: err.to_string(),
+        data: Some(data),
+    }
+}
+```
+
+## Debugging Protocol Communication
+
+Backends automatically log all JSON-RPC communication to the debug directory:
+
+<CodeGroup>
+```json project_model.json
+// Complete project configuration sent to initialize
+{
+  "name": "my-package",
+  "version": "1.0.0",
+  "manifest_path": "/path/to/pixi.toml",
+  "configuration": {
+    "compilers": ["cxx"],
+    "env": { "CMAKE_BUILD_TYPE": "Release" }
+  }
+}
+```
+
+```json conda_outputs_params.json
+// Parameters sent to conda_outputs
+{
+  "work_directory": "/path/to/work",
+  "variant_configuration": {
+    "cxx_compiler": ["gcc", "clang"],
+    "cxx_compiler_version": ["11.4"]
+  }
+}
+```
+
+```json conda_outputs_response.json
+// Response from conda_outputs
+{
+  "outputs": [
+    {
+      "name": "my-package",
+      "version": "1.0.0",
+      "variant": {
+        "cxx_compiler": "gcc",
+        "cxx_compiler_version": "11.4"
+      }
+    },
+    {
+      "name": "my-package",
+      "version": "1.0.0",
+      "variant": {
+        "cxx_compiler": "clang",
+        "cxx_compiler_version": "11.4"
+      }
+    }
+  ]
+}
+```
+</CodeGroup>
+
+These files are located at:
+```
+.pixi/build/work/<package-name>--<hash>/debug/
+├── project_model.json
+├── conda_outputs_params.json
+├── conda_outputs_response.json
+├── conda_build_v1_params.json
+└── conda_build_v1_response.json
+```
+
+## Server Implementation
+
+The protocol server runs as a long-lived process, handling multiple sequential RPC calls:
+
+From `/home/daytona/workspace/source/crates/pixi-build-backend/src/server.rs:52-56`:
+
+```rust
+/// Run the server, communicating over stdin/stdout.
+pub async fn run(self) -> miette::Result<()> {
+    let io = self.setup_io();
+    jsonrpc_stdio_server::ServerBuilder::new(io).build().await;
+    Ok(())
+}
+```
+
+<Accordion title="Server State Management">
+  The server maintains state across RPC calls:
+  
+  From `/home/daytona/workspace/source/crates/pixi-build-backend/src/server.rs:27-44`:
+  
+  ```rust
+  enum ServerState<T: ProtocolInstantiator> {
+      /// Server has not been initialized yet.
+      Uninitialized(T),
+      /// Server has been initialized, with a protocol.
+      Initialized(Box<dyn Protocol + Send + Sync + 'static>),
+  }
+  
+  impl<T: ProtocolInstantiator> ServerState<T> {
+      /// Convert to a protocol, if the server has been initialized.
+      pub fn as_endpoint(
+          &self,
+      ) -> Result<&(dyn Protocol + Send + Sync + 'static), jsonrpc_core::Error> {
+          match self {
+              Self::Initialized(protocol) => Ok(protocol.as_ref()),
+              _ => Err(Error::invalid_request()),
+          }
+      }
+  }
+  ```
+  
+  This ensures that methods like `conda_outputs` and `conda_build_v1` can only be called after successful initialization.
+</Accordion>
+
+## Alternative Transports
+
+While stdin/stdout is the primary transport, backends can also support HTTP for debugging:
+
+From `/home/daytona/workspace/source/crates/pixi-build-backend/src/server.rs:58-66`:
+
+```rust
+/// Run the server, communicating over HTTP.
+pub fn run_over_http(self, port: u16) -> miette::Result<()> {
+    let io = self.setup_io();
+    jsonrpc_http_server::ServerBuilder::new(io)
+        .start_http(&SocketAddr::from(([127, 0, 0, 1], port)))
+        .into_diagnostic()?
+        .wait();
+    Ok(())
+}
+```
+
+<Info>
+  HTTP transport is useful for debugging and testing backends independently of Pixi.
+</Info>
+
+## Creating a Backend
+
+To implement a custom backend, create a struct that implements the `ProtocolInstantiator` and `Protocol` traits:
+
+```rust
+use pixi_build_backend::protocol::{Protocol, ProtocolInstantiator};
+use pixi_build_types::procedures::*;
+
+struct MyBackend;
+
+#[async_trait::async_trait]
+impl ProtocolInstantiator for MyBackend {
+    async fn negotiate_capabilities(
+        params: NegotiateCapabilitiesParams,
+    ) -> miette::Result<NegotiateCapabilitiesResult> {
+        // Verify protocol version compatibility
+        Ok(NegotiateCapabilitiesResult {
+            protocol_version: "1.0".to_string(),
+            capabilities: Default::default(),
+        })
+    }
+
+    async fn initialize(
+        &self,
+        params: InitializeParams,
+    ) -> miette::Result<(Box<dyn Protocol + Send + Sync + 'static>, InitializeResult)> {
+        // Parse project model and create protocol endpoint
+        let endpoint = MyBackendEndpoint::new(params.project_model)?;
+        Ok((Box::new(endpoint), InitializeResult::default()))
+    }
+}
+
+struct MyBackendEndpoint {
+    // Store project configuration
+}
+
+#[async_trait::async_trait]
+impl Protocol for MyBackendEndpoint {
+    async fn conda_outputs(
+        &self,
+        params: CondaOutputsParams,
+    ) -> miette::Result<CondaOutputsResult> {
+        // Determine all output variants
+        todo!()
+    }
+
+    async fn conda_build_v1(
+        &self,
+        params: CondaBuildV1Params,
+    ) -> miette::Result<CondaBuildV1Result> {
+        // Execute the build process
+        todo!()
+    }
+}
+```
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Build Backends" icon="cube" href="/concepts/build-backends">
+    Overview of build backends and their architecture
+  </Card>
+  <Card title="Variants" icon="grid" href="/concepts/variants">
+    Understanding build variants and how they affect outputs
+  </Card>
+  <Card title="Compilers" icon="wrench" href="/concepts/compilers">
+    Compiler configuration and variant system
+  </Card>
+  <Card title="Backend Examples" icon="code" href="/backends/pixi-build-python">
+    Real-world backend implementations
+  </Card>
+</CardGroup>

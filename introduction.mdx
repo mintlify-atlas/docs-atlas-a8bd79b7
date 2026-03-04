@@ -1,0 +1,144 @@
+---
+title: Introduction
+description: Learn about Pixi Build Backends and how they enable building conda packages from source
+---
+
+## What are Pixi Build Backends?
+
+Pixi Build Backends are specialized executable tools that enable building conda packages directly from source code. They provide a standardized interface between the [Pixi](https://pixi.sh) package manager and various build systems, allowing you to create conda packages without writing complex rattler-build recipes manually.
+
+<Note>
+  Build backends follow a JSON-RPC protocol specification, ensuring consistent integration with Pixi while allowing backends to be developed, updated, and distributed independently.
+</Note>
+
+## Why Use Build Backends?
+
+Build backends solve several key challenges in the conda packaging ecosystem:
+
+<CardGroup cols={2}>
+  <Card title="Language-specific optimization" icon="code">
+    Each backend is tailored for specific programming languages and build tools, understanding the conventions and best practices of that ecosystem.
+  </Card>
+  <Card title="Modular design" icon="cubes">
+    Backends can be developed, updated, and distributed independently from Pixi core, allowing for rapid iteration and specialization.
+  </Card>
+  <Card title="Extensibility" icon="puzzle-piece">
+    New backends can be added for any build system without modifying Pixi itself. Create custom backends for proprietary or niche build systems.
+  </Card>
+  <Card title="Standardization" icon="check-circle">
+    All backends follow the same protocol and manifest specifications, ensuring consistent behavior across different languages.
+  </Card>
+</CardGroup>
+
+## How They Work
+
+Build backends operate through a well-defined workflow:
+
+<Steps>
+  <Step title="Configuration">
+    You specify which backend to use in your `pixi.toml` file:
+    
+    ```toml pixi.toml
+    [package.build]
+    backend = { name = "pixi-build-python", version = "*" }
+    channels = ["https://prefix.dev/conda-forge"]
+    ```
+  </Step>
+  
+  <Step title="Protocol negotiation">
+    When you run `pixi build`, Pixi communicates with the backend via JSON-RPC to negotiate capabilities and initialize the build environment.
+  </Step>
+  
+  <Step title="Recipe generation">
+    The backend analyzes your project (e.g., `pyproject.toml`, `Cargo.toml`, `CMakeLists.txt`) and generates a complete rattler-build recipe with:
+    
+    - Package metadata (name, version, description, license)
+    - Dependencies (build, host, and runtime)
+    - Build scripts and environment variables
+    - Platform-specific configurations
+  </Step>
+  
+  <Step title="Package building">
+    Pixi uses [rattler-build](https://rattler.build) to execute the generated recipe and create your conda package (`.conda` file).
+  </Step>
+</Steps>
+
+## Available Backends
+
+Pixi Build Backends currently supports six specialized backends:
+
+| Backend | Language/System | Key Features |
+|---------|----------------|-------------|
+| [pixi-build-python](/backends/pixi-build-python) | Python | PEP 517/518 support, PyPI-to-conda mapping, automatic metadata extraction |
+| [pixi-build-rust](/backends/pixi-build-rust) | Rust | Cargo integration, automatic dependency detection, sccache optimization |
+| [pixi-build-cmake](/backends/pixi-build-cmake) | C/C++ | CMake + Ninja, cross-platform compiler support, flexible configuration |
+| [pixi-build-rattler-build](/backends/pixi-build-rattler-build) | Any | Direct `recipe.yaml` usage for full control |
+| [pixi-build-ros](/backends/pixi-build-ros) | ROS/ROS2 | Colcon integration, automatic RoboStack mapping, distro support |
+| [pixi-build-mojo](/backends/pixi-build-mojo) | Mojo | Binary and package discovery, native performance |
+
+<Info>
+  All backends are distributed via the [prefix.dev/conda-forge](https://prefix.dev/channels/conda-forge) channel and work across Linux, macOS, and Windows.
+</Info>
+
+## Architecture Benefits
+
+The build backend architecture provides several advantages:
+
+### Separation of Concerns
+
+Pixi focuses on package management and dependency resolution, while backends handle the language-specific details of building packages. This separation allows:
+
+- Faster iteration on backend implementations
+- Specialized backends maintained by language experts
+- Reduced complexity in the Pixi core
+
+### Automatic Metadata Extraction
+
+Backends automatically extract package metadata from native manifests:
+
+- Python: `pyproject.toml` → conda package metadata
+- Rust: `Cargo.toml` → conda package metadata
+- ROS: `package.xml` → conda package metadata
+
+This eliminates duplicate configuration and keeps your project DRY (Don't Repeat Yourself).
+
+### Cross-Platform Consistency
+
+Backends handle platform-specific differences automatically:
+
+- Compiler selection (GCC on Linux, Clang on macOS, MSVC on Windows)
+- Library naming conventions (`.so`, `.dylib`, `.dll`)
+- Path separators and environment variables
+
+## Integration with Pixi Ecosystem
+
+Build backends seamlessly integrate with Pixi's broader ecosystem:
+
+- **pixi build**: Build packages from source
+- **pixi install**: Install built packages locally
+- **pixi upload**: Publish packages to conda channels
+- **pixi.lock**: Lock file support for reproducible builds
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Build your first conda package in minutes with our quickstart guide.
+  </Card>
+  <Card title="Choose a Backend" icon="list" href="/backends/overview">
+    Explore the available backends and find the right one for your project.
+  </Card>
+  <Card title="Core Concepts" icon="book-open" href="/concepts/build-backends">
+    Dive deeper into how build backends work under the hood.
+  </Card>
+  <Card title="Create a Backend" icon="hammer" href="/backends/creating-backends">
+    Learn how to create your own backend for custom build systems.
+  </Card>
+</CardGroup>
+
+## Resources
+
+- [Pixi Documentation](https://pixi.sh/dev/build/backends/) - Official Pixi build documentation
+- [rattler-build](https://rattler.build) - The build tool used by all backends
+- [GitHub Repository](https://github.com/prefix-dev/pixi-build-backends) - Source code and issue tracker
+- [prefix.dev](https://prefix.dev) - The company behind Pixi

@@ -1,0 +1,383 @@
+---
+title: Debugging Builds
+description: Learn how to troubleshoot build issues and inspect generated recipes
+---
+
+# Debugging Build Issues
+
+When a build fails or behaves unexpectedly, Pixi build backends provide several tools and techniques to help you diagnose and fix the problem. This guide covers the debugging workflow and available tools.
+
+## Understanding the Build Process
+
+When you run `pixi build`, the following happens:
+
+<Steps>
+
+<Step title="Backend Initialization">
+The build backend is invoked with your project model (parsed from `pixi.toml`)
+</Step>
+
+<Step title="Recipe Generation">
+The backend generates a complete rattler-build `recipe.yaml` based on your configuration
+</Step>
+
+<Step title="Recipe Execution">
+The generated recipe is passed to `rattler-build` which performs the actual build
+</Step>
+
+<Step title="Package Creation">
+If successful, a conda package (`.conda` file) is created
+</Step>
+
+</Steps>
+
+Most build issues occur in steps 2-3, so inspecting the generated recipe is often the key to debugging.
+
+## Inspecting Generated Recipes
+
+Build backends automatically save generated recipes to help you debug issues.
+
+### Recipe Locations
+
+After running `pixi build`, you'll find generated recipes in your project's build directory:
+
+<Accordion title="General Recipe (All Outputs)">
+
+**Location:**
+```
+<your_project>/.pixi/build/work/<package-name>--<hash>/debug/
+```
+
+**Contents:**
+- `recipe.yaml` - General recipe that can build all package outputs
+- `variants.yaml` - All variant configurations for the package
+
+**Use this when:**
+- You want to see all possible build outputs
+- You're debugging variant configuration issues
+
+</Accordion>
+
+<Accordion title="Variant-Specific Recipe (Single Output)">
+
+**Location:**
+```
+<your_project>/.pixi/build/work/<package-name>--<hash>/debug/recipe/<variant_hash>/
+```
+
+**Contents:**
+- `recipe.yaml` - Complete recipe for this specific variant
+- `variants.yaml` - Variant configuration used for this build
+
+**Use this when:**
+- You're debugging a specific build failure
+- You want to rebuild with the exact configuration that failed
+
+</Accordion>
+
+### Example: Finding Your Recipe
+
+Let's say you're building a package called `my-python-app`:
+
+```bash
+# After running pixi build, look in:
+cd .pixi/build/work/
+
+# You'll see a directory like:
+ls
+my-python-app--a1b2c3d4/
+
+# Navigate to the debug directory:
+cd my-python-app--a1b2c3d4/debug/
+
+# View the general recipe:
+cat recipe.yaml
+
+# For variant-specific recipes:
+cd recipe/<variant_hash>/
+cat recipe.yaml
+```
+
+## Rebuilding with Generated Recipes
+
+Once you've found the generated recipe, you can rebuild directly using `rattler-build`:
+
+<Tabs>
+  <Tab title="Option 1: Navigate to Recipe">
+    ```bash
+    # Navigate to the variant-specific recipe directory
+    cd .pixi/build/work/<package-name>--<hash>/debug/recipe/<variant_hash>/
+    
+    # Build using rattler-build
+    rattler-build build
+    ```
+    
+    This runs the build in the same directory as the recipe, making it easy to edit and test changes.
+  </Tab>
+  
+  <Tab title="Option 2: Point to Recipe">
+    ```bash
+    # Build from anywhere by pointing to the recipe directory
+    rattler-build build --recipe .pixi/build/work/<package-name>--<hash>/debug/recipe/<variant_hash>/
+    ```
+    
+    This is useful when you want to stay in your project root.
+  </Tab>
+</Tabs>
+
+<Note>
+Rebuilding with `rattler-build` directly is faster than running `pixi build` again, as it skips the recipe generation step.
+</Note>
+
+## Debugging JSON-RPC Communication
+
+Pixi communicates with build backends using JSON-RPC. All communication is saved for debugging.
+
+### JSON Files Location
+
+In the same debug directory as `recipe.yaml`, you'll find:
+
+```
+.pixi/build/work/<package-name>--<hash>/debug/recipe/<variant_hash>/
+├── recipe.yaml              # Generated recipe
+├── variants.yaml            # Variant configuration  
+├── project_model.json       # Your project model (from pixi.toml)
+├── *_params.json           # Request parameters sent to backend
+└── *_response.json         # Responses from backend
+```
+
+### Example: Inspecting the Project Model
+
+```bash
+# View the project model that was sent to the backend
+cat .pixi/build/work/my-app--abc123/debug/recipe/def456/project_model.json
+```
+
+This shows exactly how Pixi interpreted your `pixi.toml`:
+
+```json
+{
+  "name": "my-python-app",
+  "version": "1.0.0",
+  "targets": {
+    "defaultTarget": {
+      "runDependencies": {
+        "python": {
+          "binary": { "version": ">=3.8" }
+        }
+      }
+    }
+  }
+}
+```
+
+## Common Build Issues
+
+<AccordionGroup>
+
+<Accordion title="Missing Dependencies in Build Environment">
+
+**Symptom:** Build fails with "command not found" or "package not found"
+
+**Diagnosis:**
+```bash
+# Check the generated recipe's build requirements
+cat .pixi/build/work/<package>--<hash>/debug/recipe/<variant>/recipe.yaml | grep -A 10 "requirements:"
+```
+
+**Solution:**
+Add missing dependencies to your `pixi.toml`:
+
+```toml
+[package.build.dependencies]
+missing-tool = "*"
+```
+
+</Accordion>
+
+<Accordion title="Compiler Not Found">
+
+**Symptom:** Build fails with compiler errors like "gcc: not found"
+
+**Diagnosis:**
+Check if compilers are in the recipe:
+```bash
+grep "compiler" .pixi/build/work/<package>--<hash>/debug/recipe/<variant>/recipe.yaml
+```
+
+**Solution:**
+Explicitly configure compilers in your backend configuration:
+
+```toml
+[package.build]
+backend = { name = "pixi-build-cmake", version = "*" }
+configuration = {
+  compilers = ["c", "cxx"]
+}
+```
+
+</Accordion>
+
+<Accordion title="Wrong Files Included in Build">
+
+**Symptom:** Build includes/excludes unexpected files
+
+**Diagnosis:**
+Inspect the source section in the generated recipe:
+```bash
+cat .pixi/build/work/<package>--<hash>/debug/recipe/<variant>/recipe.yaml | grep -A 20 "source:"
+```
+
+**Solution:**
+Adjust `extra-input-globs` in your configuration:
+
+```toml
+[package.build]
+backend = { name = "pixi-build-python", version = "*" }
+configuration = {
+  extra-input-globs = ["data/**/*", "!**/*.pyc"]
+}
+```
+
+</Accordion>
+
+<Accordion title="Build Script Fails">
+
+**Symptom:** The build script exits with an error
+
+**Diagnosis:**
+View the exact build script that was generated:
+```bash
+cat .pixi/build/work/<package>--<hash>/debug/recipe/<variant>/recipe.yaml | grep -A 30 "script:"
+```
+
+**Solution:**
+For complex builds, consider:
+1. Adding debug output to your build process
+2. Setting environment variables to enable verbose logging:
+
+```toml
+[package.build]
+configuration = {
+  env = { VERBOSE = "1", CMAKE_VERBOSE_MAKEFILE = "ON" }
+}
+```
+
+</Accordion>
+
+<Accordion title="Platform-Specific Build Failure">
+
+**Symptom:** Build works on one platform but fails on another
+
+**Diagnosis:**
+Compare the generated recipes for different platforms:
+```bash
+# Build for different platforms and compare
+pixi build --target-platform linux-64
+pixi build --target-platform osx-64
+
+# Compare the generated recipes
+diff .pixi/build/work/<package>--<hash1>/debug/recipe/<variant>/recipe.yaml \
+     .pixi/build/work/<package>--<hash2>/debug/recipe/<variant>/recipe.yaml
+```
+
+**Solution:**
+Use target-specific configuration:
+
+```toml
+[package.build]
+configuration = { /* base config */ }
+
+[target.linux-64.build]
+configuration = { /* Linux-specific overrides */ }
+```
+
+</Accordion>
+
+</AccordionGroup>
+
+## Advanced Debugging Techniques
+
+### Enabling Verbose Output
+
+Get more detailed output from the build process:
+
+```bash
+# Run pixi build with verbose logging
+RUST_LOG=debug pixi build
+```
+
+### Testing Recipe Changes
+
+To test changes to the generated recipe:
+
+<Steps>
+
+<Step title="Copy the Recipe">
+```bash
+cp -r .pixi/build/work/<package>--<hash>/debug/recipe/<variant>/ /tmp/test-recipe/
+```
+</Step>
+
+<Step title="Edit the Recipe">
+```bash
+cd /tmp/test-recipe/
+# Edit recipe.yaml with your changes
+vim recipe.yaml
+```
+</Step>
+
+<Step title="Test the Build">
+```bash
+rattler-build build
+```
+</Step>
+
+<Step title="Apply Changes to Backend Config">
+If your changes work, update your `pixi.toml` configuration to make the backend generate the corrected recipe.
+</Step>
+
+</Steps>
+
+### Comparing Against Working Builds
+
+If you have a working build from a previous version:
+
+```bash
+# Save working recipes
+cp -r .pixi/build/work/<package>--<hash>/debug/ /tmp/working-recipe/
+
+# After making changes that break the build:
+diff -r /tmp/working-recipe/ .pixi/build/work/<package>--<hash>/debug/
+```
+
+## Getting Help
+
+<CardGroup cols={2}>
+  <Card title="Discord Community" icon="discord" href="https://discord.gg/kKV8ZxyzY4">
+    Join the Pixi community to ask questions and get help
+  </Card>
+  
+  <Card title="GitHub Issues" icon="github" href="https://github.com/prefix-dev/pixi">
+    Report bugs or request features
+  </Card>
+</CardGroup>
+
+<Tip>
+When asking for help, always include:
+1. Your `pixi.toml` configuration
+2. The generated `recipe.yaml` from the debug directory
+3. The complete error message
+4. Output of `pixi --version`
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration Guide" href="/guides/configuration" icon="gear">
+    Learn about all available configuration options
+  </Card>
+  <Card title="Developing Backends" href="/guides/developing-backends" icon="code">
+    Create your own build backend
+  </Card>
+</CardGroup>

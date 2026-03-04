@@ -1,0 +1,529 @@
+---
+title: Compilers
+description: How compiler detection and configuration works in Pixi build backends
+---
+
+Pixi build backends integrate with conda-forge's compiler infrastructure to provide cross-platform, ABI-compatible builds. This system automatically selects appropriate compilers based on your target platform and allows fine-grained control through build variants.
+
+<Warning>
+  `pixi-build` is a preview feature and will change until stabilized. Add "pixi-build" to `workspace.preview` to enable:
+  
+  ```toml
+  [workspace]
+  preview = ["pixi-build"]
+  ```
+</Warning>
+
+## How Compiler Selection Works
+
+When you specify compilers in your build configuration, backends don't install packages named "c" or "cxx" directly. Instead, they use a **variant system** to determine platform-specific compiler packages.
+
+From `/home/daytona/workspace/source/crates/pixi-build-backend/src/compilers.rs:34-69`:
+
+```rust
+pub fn default_compiler(platform: &Platform, language: &str) -> String {
+    match language {
+        "fortran" => "gfortran",
+        "c" | "cxx" => {
+            if platform.is_windows() {
+                match language {
+                    "c" => "vs2019",
+                    "cxx" => "vs2019",
+                    _ => unreachable!(),
+                }
+            } else if platform.is_osx() {
+                match language {
+                    "c" => "clang",
+                    "cxx" => "clangxx",
+                    _ => unreachable!(),
+                }
+            } else {
+                match language {
+                    "c" => "gcc",
+                    "cxx" => "gxx",
+                    _ => unreachable!(),
+                }
+            }
+        }
+        _ => language,
+    }
+    .to_string()
+}
+```
+
+### Default Platform Compilers
+
+For `amd64` platforms, these compilers are selected by default:
+
+| Compiler | Linux | macOS | Windows |
+|----------|-------|-------|----------|
+| `c` | `gcc_linux-64` | `clang_osx-64` | `vs2019_win-64` |
+| `cxx` | `gxx_linux-64` | `clangxx_osx-64` | `vs2019_win-64` |
+| `fortran` | `gfortran_linux-64` | `gfortran_osx-64` | `vs2019_win-64` |
+| `rust` | `rust` | `rust` | `rust` |
+
+<Info>
+  The actual package name includes the target platform suffix (e.g., `gcc_linux-64`). The variant system automatically appends this based on your build target.
+</Info>
+
+## Compiler Selection Process
+
+The backend follows these steps to determine which compilers to use:
+
+<Steps>
+  <Step title="Determine Required Compilers">
+    If you specified `compilers = ["c"]` in your configuration, the C compiler will be requested. If there's no compiler configuration, the backend uses its default (e.g., CMake defaults to `["cxx"]`, Python defaults to `[]`).
+  </Step>
+  
+  <Step title="Identify Variant Keys">
+    For each compiler, the backend looks for variant keys following the pattern:
+    - `{language}_compiler`
+    - `{language}_compiler_version`
+    
+    For example, `compilers = ["c"]` uses:
+    - `c_compiler`
+    - `c_compiler_version`
+  </Step>
+  
+  <Step title="Generate Output Variants">
+    Each variant can have multiple values, creating a build matrix:
+    
+    ```toml
+    [workspace.build-variants]
+    c_compiler = ["gcc"]
+    c_compiler_version = ["11.4", "14.0"]
+    ```
+    
+    This creates two outputs: one with GCC 11.4, another with GCC 14.0.
+  </Step>
+  
+  <Step title="Request Compiler Packages">
+    For each output, a package is requested with the pattern:
+    
+    ```
+    {compiler}_{target_platform} {compiler_version}
+    ```
+    
+    Building on `linux-64` with the above variants would request:
+    - `gcc_linux-64 11.4`
+    - `gcc_linux-64 14.0`
+  </Step>
+</Steps>
+
+From `/home/daytona/workspace/source/crates/pixi-build-backend/src/compilers.rs:87-103`:
+
+```rust
+pub fn add_compilers_to_requirements<S>(
+    compilers: &[String],
+    requirements: &mut Vec<Item<PackageDependency>>,
+    dependencies: &crate::traits::targets::Dependencies<S>,
+    host_platform: &Platform,
+) {
+    for compiler_str in compilers {
+        let language_compiler = default_compiler(host_platform, compiler_str);
+        let source_package_name = pixi_build_types::SourcePackageName::from(language_compiler);
+
+        if !dependencies.build.contains_key(&source_package_name) {
+            let template = format!("${{{{ compiler('{compiler_str}') }}}}");
+            requirements.push(Item::Value(Value::Template(template)));
+        }
+    }
+}
+```
+
+## Available Compilers
+
+The following compilers are available through conda-forge:
+
+### Core Compilers
+
+<AccordionGroup>
+  <Accordion title="C Compiler (c)">
+    **Default Implementations:**
+    - Linux: `gcc`
+    - macOS: `clang`
+    - Windows: `vs2019` (or `vs2022` in newer backends)
+    - Emscripten: `emscripten`
+    
+    **Example:**
+    ```toml
+    [package.build.config]
+    compilers = ["c"]
+    ```
+  </Accordion>
+  
+  <Accordion title="C++ Compiler (cxx)">
+    **Default Implementations:**
+    - Linux: `gxx`
+    - macOS: `clangxx`
+    - Windows: `vs2019` (or `vs2022` in newer backends)
+    - Emscripten: `emscripten`
+    
+    **Example:**
+    ```toml
+    [package.build.config]
+    compilers = ["cxx"]
+    ```
+  </Accordion>
+  
+  <Accordion title="Fortran Compiler (fortran)">
+    **Default Implementation:**
+    - All platforms: `gfortran`
+    
+    **Example:**
+    ```toml
+    [package.build.config]
+    compilers = ["fortran"]
+    ```
+  </Accordion>
+  
+  <Accordion title="Rust Compiler (rust)">
+    **Default Implementation:**
+    - All platforms: `rust`
+    
+    **Example:**
+    ```toml
+    [package.build.config]
+    compilers = ["rust"]
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Specialized Compilers
+
+| Compiler | Description | Platforms |
+|----------|-------------|----------|
+| `cuda` | NVIDIA CUDA compiler | Linux, Windows |
+| `go` | Go compiler | All platforms |
+
+## Configuring Compilers
+
+### Backend-Level Configuration
+
+Specify compilers in your package build configuration:
+
+<CodeGroup>
+```toml CMake Project
+[package.build.config]
+compilers = ["c", "cxx"]
+```
+
+```toml Python with Extensions
+[package.build.config]
+compilers = ["c", "cxx"]
+```
+
+```toml Rust Project
+[package.build.config]
+compilers = ["rust"]
+```
+
+```toml Scientific Computing
+[package.build.config]
+compilers = ["c", "cxx", "fortran"]
+```
+</CodeGroup>
+
+### Workspace-Level Overrides
+
+Override compiler variants at the workspace level to customize compiler selection:
+
+```toml
+# pixi.toml
+[workspace.build-variants]
+c_compiler = ["clang"]
+c_compiler_version = ["11.4"]
+```
+
+This changes the C compiler from the platform default to Clang 11.4.
+
+### Platform-Specific Overrides
+
+Use `workspace.target` to specify platform-specific compiler variants:
+
+<CodeGroup>
+```toml Windows-Specific
+[workspace.target.win.build-variants]
+c_compiler = ["vs2022"]
+cxx_compiler = ["vs2022"]
+```
+
+```toml Version-Specific
+[workspace.target.win.build-variants]
+c_compiler = ["vs"]
+cxx_compiler = ["vs"]
+c_compiler_version = ["2022"]
+cxx_compiler_version = ["2022"]
+```
+
+```toml Linux CUDA
+[workspace.target.linux-64.build-variants]
+cxx_compiler = ["gcc"]
+cxx_compiler_version = ["11.4"]
+cuda_compiler = ["11.8"]
+```
+</CodeGroup>
+
+## Backend-Specific Defaults
+
+Only certain backends support the `compilers` configuration option:
+
+| Backend | Compiler Support | Default Compilers | Rationale |
+|---------|------------------|-------------------|-----------|
+| **[pixi-build-cmake](/backends/pixi-build-cmake#compilers)** | ✅ Supported | `["cxx"]` | Most CMake projects are C++ |
+| **[pixi-build-rust](/backends/pixi-build-rust#compilers)** | ✅ Supported | `["rust"]` | Rust projects need the Rust compiler |
+| **[pixi-build-python](/backends/pixi-build-python#compilers)** | ✅ Supported | `[]` | Pure Python packages typically don't need compilers |
+| **[pixi-build-mojo](/backends/pixi-build-mojo#compilers)** | ✅ Supported | `[]` | `mojo-compiler` must be specified manually |
+| **pixi-build-rattler-build** | ❌ Not Supported | N/A | Configure compilers directly in `recipe.yaml` |
+
+<Info>
+  Backend developers can add compiler support by implementing the `compilers` field in their configuration and integrating with the shared compiler infrastructure in `pixi-build-backend`.
+</Info>
+
+## Build Variants and Compiler Matrix
+
+Build variants allow you to build packages with multiple compiler configurations:
+
+```toml
+[workspace.build-variants]
+c_compiler = ["gcc", "clang"]
+c_compiler_version = ["11.4", "14.0"]
+```
+
+This creates a **2 × 2 matrix** = 4 output packages:
+1. `gcc 11.4`
+2. `gcc 14.0`
+3. `clang 11.4`
+4. `clang 14.0`
+
+From `/home/daytona/workspace/source/crates/pixi-build-backend/src/common/variants.rs:12-31`:
+
+```rust
+pub fn compute_variants<P: ProjectModel>(
+    project_model: &P,
+    input_variant_configuration: Option<BTreeMap<NormalizedKey, Vec<Variable>>>,
+    host_platform: Platform,
+) -> miette::Result<Vec<BTreeMap<NormalizedKey, Variable>>> {
+    let variant_config = VariantConfig {
+        variants: input_variant_configuration.unwrap_or_default(),
+        pin_run_as_build: None,
+        zip_keys: None,
+    };
+
+    let used_variants = project_model.used_variants(Some(host_platform));
+
+    variant_config
+        .combinations(&used_variants, None)
+        .into_diagnostic()
+}
+```
+
+See the [Variants documentation](/concepts/variants) for detailed information about build variant matrices.
+
+## Standard Library Dependencies
+
+Some compilers require standard library packages. The backend automatically adds these when appropriate:
+
+From `/home/daytona/workspace/source/crates/pixi-build-backend/src/compilers.rs:105-137`:
+
+```rust
+fn stdlib_for_language(lang: &str) -> Option<&'static str> {
+    match lang {
+        "go-nocgo" => None,
+        _ => Some("c"),
+    }
+}
+
+pub fn add_stdlib_to_requirements(
+    compilers: &[String],
+    requirements: &mut Vec<Item<PackageDependency>>,
+    variants: &HashSet<NormalizedKey>,
+) {
+    for stdlib in compilers
+        .iter()
+        .map(Deref::deref)
+        .filter_map(stdlib_for_language)
+        .unique()
+    {
+        let stdlib_key = format!("{stdlib}_stdlib");
+        if !variants.contains(&NormalizedKey(stdlib_key)) {
+            continue;
+        }
+
+        let template = format!("${{{{ stdlib('{stdlib}') }}}}");
+        requirements.push(Item::Value(Value::Template(template)));
+    }
+}
+```
+
+<Note>
+  Most compilers use the C standard library. The `go-nocgo` compiler is an exception and doesn't require any standard library.
+</Note>
+
+## Automatic Compiler Detection
+
+Some backends automatically detect required compilers based on your build configuration:
+
+**Python Backend Example:**
+
+The Python backend detects compilers from `build-system.requires`:
+- `maturin` → Adds `"rust"` compiler
+- `setuptools-rust` → Adds `"rust"` compiler
+
+These auto-detected compilers are merged with any explicitly configured compilers.
+
+## Compiler Requirement Templates
+
+Backends use Jinja2-style templates to reference compilers in generated recipes:
+
+From `/home/daytona/workspace/source/crates/pixi-build-backend/src/compilers.rs:71-76`:
+
+```rust
+pub fn compiler_requirement(language: &Language) -> Item<PackageDependency> {
+    format!("${{{{ compiler('{language}') }}}}")
+        .parse()
+        .expect("Failed to parse compiler requirement")
+}
+```
+
+This generates template strings like:
+```jinja
+{{ compiler('c') }}
+{{ compiler('cxx') }}
+{{ compiler('rust') }}
+```
+
+These templates are resolved by rattler-build during the actual build process, selecting the appropriate platform-specific compiler package.
+
+## Cross-Compilation
+
+When cross-compiling, the `target_platform` differs from your build platform:
+
+```toml
+# Building on linux-64 for osx-arm64
+[package.build.target.osx-arm64.config]
+compilers = ["cxx"]
+```
+
+The backend requests `clangxx_osx-arm64` instead of `gxx_linux-64`, ensuring the correct cross-compiler is used.
+
+<Info>
+  The target platform is the platform you're compiling **for**, not the platform you're compiling **on**.
+</Info>
+
+## Platform-Specific Configuration
+
+Different platforms can use different compilers:
+
+```toml
+# Base configuration
+[package.build.config]
+compilers = ["cxx"]
+
+# Linux needs CUDA support
+[package.build.target.linux-64.config]
+compilers = ["cxx", "cuda"]
+
+# Windows needs both C and C++
+[package.build.target.win-64.config]
+compilers = ["c", "cxx"]
+```
+
+<Warning>
+  Platform-specific compiler configuration **overwrites** the base configuration completely. It does not merge.
+</Warning>
+
+## Examples
+
+<AccordionGroup>
+  <Accordion title="Pure Python Package (No Compilers)">
+    ```toml
+    [package.build]
+    backend = { name = "pixi-build-python", version = "*" }
+    channels = ["https://prefix.dev/conda-forge"]
+    
+    [package.build.config]
+    # No compilers needed - defaults to []
+    noarch = true
+    ```
+  </Accordion>
+  
+  <Accordion title="Python Package with C Extensions">
+    ```toml
+    [package.build]
+    backend = { name = "pixi-build-python", version = "*" }
+    channels = ["https://prefix.dev/conda-forge"]
+    
+    [package.build.config]
+    compilers = ["c", "cxx"]
+    noarch = false
+    ```
+  </Accordion>
+  
+  <Accordion title="CMake C++ Project">
+    ```toml
+    [package.build]
+    backend = { name = "pixi-build-cmake", version = "*" }
+    channels = ["https://prefix.dev/conda-forge"]
+    
+    [package.build.config]
+    compilers = ["cxx"]  # Default for CMake backend
+    ```
+  </Accordion>
+  
+  <Accordion title="Multi-Compiler Scientific Package">
+    ```toml
+    [package.build]
+    backend = { name = "pixi-build-cmake", version = "*" }
+    channels = ["https://prefix.dev/conda-forge"]
+    
+    [package.build.config]
+    compilers = ["c", "cxx", "fortran"]
+    
+    # Use specific GCC version
+    [workspace.build-variants]
+    c_compiler = ["gcc"]
+    cxx_compiler = ["gxx"]
+    fortran_compiler = ["gfortran"]
+    c_compiler_version = ["11.4"]
+    cxx_compiler_version = ["11.4"]
+    fortran_compiler_version = ["11.4"]
+    ```
+  </Accordion>
+  
+  <Accordion title="CUDA-Enabled Package (Linux Only)">
+    ```toml
+    [package.build]
+    backend = { name = "pixi-build-cmake", version = "*" }
+    channels = ["https://prefix.dev/conda-forge"]
+    
+    # Base: C++ only
+    [package.build.config]
+    compilers = ["cxx"]
+    
+    # Linux: Add CUDA
+    [package.build.target.linux-64.config]
+    compilers = ["cxx", "cuda"]
+    
+    [workspace.build-variants]
+    cuda_compiler_version = ["11.8", "12.0"]
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Variants" icon="grid" href="/concepts/variants">
+    Learn how build variants create compiler matrices
+  </Card>
+  <Card title="Build Backends" icon="cube" href="/concepts/build-backends">
+    Overview of backend architecture and configuration
+  </Card>
+  <Card title="CMake Backend" icon="hammer" href="/backends/pixi-build-cmake">
+    CMake-specific compiler configuration
+  </Card>
+  <Card title="Python Backend" icon="python" href="/backends/pixi-build-python">
+    Python-specific compiler configuration
+  </Card>
+</CardGroup>

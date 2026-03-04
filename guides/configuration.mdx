@@ -1,0 +1,336 @@
+---
+title: Configuration Guide
+description: Learn how to configure different build backends for your Pixi projects
+---
+
+# Backend Configuration Guide
+
+Each Pixi build backend supports a set of configuration options that control how your project is built. This guide covers the configuration options available across different backends and how to use them effectively.
+
+## Configuration Basics
+
+Backend configuration is specified in your `pixi.toml` file under the `[package.build]` section:
+
+```toml
+[package.build]
+backend = { name = "pixi-build-python", version = "*" }
+configuration = {
+  # Backend-specific configuration options go here
+}
+```
+
+## Common Configuration Options
+
+While each backend has its own specific options, several configuration patterns are common across backends:
+
+### Environment Variables
+
+All backends support setting custom environment variables during the build:
+
+```toml
+[package.build]
+backend = { name = "pixi-build-python", version = "*" }
+configuration = {
+  env = { FOO = "bar", BUILD_TYPE = "release" }
+}
+```
+
+### Extra Input Globs
+
+Control which files are included in the build by specifying additional glob patterns:
+
+```toml
+[package.build]
+backend = { name = "pixi-build-cmake", version = "*" }
+configuration = {
+  extra-input-globs = ["data/**/*.json", "config/*.yaml"]
+}
+```
+
+### Compilers
+
+Many backends allow you to specify which compilers to use:
+
+```toml
+[package.build]
+backend = { name = "pixi-build-cmake", version = "*" }
+configuration = {
+  compilers = ["c", "cxx", "cuda"]
+}
+```
+
+## Backend-Specific Configuration
+
+<Accordion title="Python Backend Configuration">
+
+The `pixi-build-python` backend provides options tailored for Python package builds.
+
+### Available Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `noarch` | `bool` | `true` | Build as a noarch (platform-independent) package |
+| `extra-args` | `string[]` | `[]` | Extra arguments to pass to pip/uv |
+| `env` | `object` | `{}` | Environment variables for the build |
+| `extra-input-globs` | `string[]` | `[]` | Additional file patterns to include |
+| `compilers` | `string[]` | `null` | List of compilers (e.g., ["c", "cxx", "rust"]) |
+| `ignore-pyproject-manifest` | `bool` | `false` | Ignore pyproject.toml and use only project model |
+| `ignore-pypi-mapping` | `bool` | `true` | Disable PyPI-to-conda dependency mapping |
+
+### Example: Pure Python Package
+
+```toml
+[package]
+name = "my-python-package"
+version = "1.0.0"
+
+[package.build]
+backend = { name = "pixi-build-python", version = "*" }
+configuration = {
+  noarch = true,
+  extra-args = ["--no-deps"]
+}
+```
+
+### Example: Python Package with C Extensions
+
+```toml
+[package.build]
+backend = { name = "pixi-build-python", version = "*" }
+configuration = {
+  noarch = false,
+  compilers = ["c", "cxx"],
+  env = { CFLAGS = "-O3" }
+}
+```
+
+</Accordion>
+
+<Accordion title="CMake Backend Configuration">
+
+The `pixi-build-cmake` backend is designed for projects using CMake as their build system.
+
+### Available Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `extra-args` | `string[]` | `[]` | Extra arguments for CMake invocation |
+| `env` | `object` | `{}` | Environment variables for the build |
+| `extra-input-globs` | `string[]` | `[]` | Additional file patterns to include |
+| `compilers` | `string[]` | `["cxx"]` | List of compilers to use |
+
+### Default Input Globs
+
+The CMake backend automatically includes:
+- `**/*.{c,cc,cxx,cpp,h,hpp,hxx}` - Source files
+- `**/*.{cmake,cmake.in}` - CMake configuration files
+- `**/CMakeFiles.txt` - CMake build files
+
+### Example: Basic CMake Project
+
+```toml
+[package]
+name = "my-cmake-project"
+version = "1.0.0"
+
+[package.build]
+backend = { name = "pixi-build-cmake", version = "*" }
+configuration = {
+  extra-args = ["-DCMAKE_BUILD_TYPE=Release", "-DBUILD_TESTING=OFF"]
+}
+```
+
+### Example: Multi-Compiler Setup
+
+```toml
+[package.build]
+backend = { name = "pixi-build-cmake", version = "*" }
+configuration = {
+  compilers = ["c", "cxx", "cuda"],
+  env = { CMAKE_CUDA_ARCHITECTURES = "75;80" }
+}
+```
+
+</Accordion>
+
+<Accordion title="Rust Backend Configuration">
+
+The `pixi-build-rust` backend handles Cargo-based Rust projects.
+
+### Available Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `extra-args` | `string[]` | `[]` | Extra arguments to pass to cargo |
+| `env` | `object` | `{}` | Environment variables for the build |
+| `extra-input-globs` | `string[]` | `[]` | Additional file patterns to include |
+| `ignore-cargo-manifest` | `bool` | `false` | Ignore Cargo.toml and use only project model |
+| `compilers` | `string[]` | `null` | List of compilers to use |
+
+### Example: Basic Rust Project
+
+```toml
+[package]
+name = "my-rust-crate"
+version = "0.1.0"
+
+[package.build]
+backend = { name = "pixi-build-rust", version = "*" }
+configuration = {
+  extra-args = ["--release"]
+}
+```
+
+### Example: Rust with C/C++ Dependencies
+
+```toml
+[package.build]
+backend = { name = "pixi-build-rust", version = "*" }
+configuration = {
+  compilers = ["rust", "c", "cxx"],
+  env = { RUSTFLAGS = "-C target-cpu=native" }
+}
+```
+
+</Accordion>
+
+<Accordion title="Rattler-Build Backend Configuration">
+
+The `pixi-build-rattler-build` backend allows you to use `recipe.yaml` files directly.
+
+### Available Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `extra-input-globs` | `string[]` | `[]` | Additional file patterns to include |
+| `experimental` | `bool` | `false` | Enable experimental rattler-build features |
+
+### Example: Using recipe.yaml
+
+```toml
+[package]
+name = "my-package"
+version = "1.0.0"
+
+[package.build]
+backend = { name = "pixi-build-rattler-build", version = "*" }
+configuration = {
+  experimental = true,
+  extra-input-globs = ["recipe/**/*"]
+}
+```
+
+<Note>
+The rattler-build backend expects a `recipe.yaml` file in your project root. This gives you full control over the build process using rattler-build's native format.
+</Note>
+
+</Accordion>
+
+<Accordion title="ROS Backend Configuration">
+
+The `pixi-build-ros` backend is designed for ROS (Robot Operating System) packages.
+
+### Available Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `distro` | `string` | required | ROS distribution (e.g., "jazzy", "humble") |
+
+### Example: ROS Package
+
+```toml
+[package]
+name = "undefined"  # Will be read from package.xml
+version = "0.0.0"   # Will be read from package.xml
+
+[package.build]
+backend = { name = "pixi-build-ros", version = "*" }
+configuration = {
+  distro = "jazzy"
+}
+```
+
+<Note>
+The ROS backend automatically reads package metadata from `package.xml`. The name and version in `pixi.toml` will be overridden.
+</Note>
+
+</Accordion>
+
+## Target-Specific Configuration
+
+You can provide platform-specific configuration using target sections:
+
+```toml
+[package.build]
+backend = { name = "pixi-build-python", version = "*" }
+configuration = {
+  noarch = true,
+  env = { COMMON_VAR = "value" }
+}
+
+[target.linux-64.build]
+configuration = {
+  noarch = false,  # Override for Linux
+  compilers = ["c", "cxx"],
+  env = { LINUX_SPECIFIC = "true" }
+}
+```
+
+<Warning>
+Some configuration options cannot be set in target-specific configurations:
+- `debug-dir` - Must be the same across all platforms
+- `experimental` (rattler-build) - Must be the same across all platforms
+</Warning>
+
+## Configuration Merging Rules
+
+When using target-specific configuration, values are merged as follows:
+
+<Steps>
+
+<Step title="Environment Variables">
+Target environment variables **extend** base environment variables. If a variable is defined in both, the target value takes precedence.
+</Step>
+
+<Step title="Arrays (extra-args, extra-input-globs)">
+Target arrays **completely replace** base arrays. No merging occurs.
+</Step>
+
+<Step title="Compilers">
+Target compiler list **completely replaces** base compiler list.
+</Step>
+
+<Step title="Boolean/Simple Values">
+Target values **override** base values when present.
+</Step>
+
+</Steps>
+
+## Best Practices
+
+<Card title="Start with Defaults" icon="check">
+Most backends work well with default settings. Only add configuration when you need to customize behavior.
+</Card>
+
+<Card title="Use Target-Specific Config Sparingly" icon="lightbulb">
+Platform-specific configuration adds complexity. Use it only when behavior truly differs across platforms.
+</Card>
+
+<Card title="Document Custom Settings" icon="book">
+If you use non-default configuration, add comments in your `pixi.toml` explaining why.
+</Card>
+
+<Card title="Test Cross-Platform" icon="globe">
+If building for multiple platforms, test that your configuration works on each target platform.
+</Card>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Debugging Builds" href="/guides/debugging" icon="bug">
+    Learn how to troubleshoot build issues and inspect generated recipes
+  </Card>
+  <Card title="Developing Backends" href="/guides/developing-backends" icon="code">
+    Create your own custom build backend
+  </Card>
+</CardGroup>

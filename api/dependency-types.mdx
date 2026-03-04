@@ -1,0 +1,386 @@
+---
+title: "Dependency Types"
+description: "Understanding build-dependencies, host-dependencies, and run-dependencies"
+---
+
+When building conda packages from source, dependencies are categorized into three types based on when and where they are needed. This categorization follows conda-forge conventions and enables proper cross-compilation support.
+
+## Overview
+
+The three dependency types are:
+
+- **build-dependencies**: Tools needed during the build process that run on the build platform
+- **host-dependencies**: Libraries and dependencies needed to build against, for the target platform
+- **run-dependencies**: Dependencies needed when running the built package
+
+## Dependency Types Explained
+
+### Build Dependencies
+
+Build dependencies are tools and programs that run during the build process on the **build platform** (the machine doing the compilation).
+
+<ParamField path="package.build-dependencies" type="object">
+  Dependencies required at build time that execute on the build machine.
+  
+  **Common examples:**
+  - Compilers (`rust`, `gcc`, `clang`)
+  - Build tools (`cmake`, `ninja`, `cargo`, `pip`)
+  - Code generators and preprocessors
+  - Build system packages
+  
+  **When to use:**
+  Use build dependencies for executables that need to run during the build but won't be part of the final package.
+  
+  **Example:**
+  ```toml
+  [package.build-dependencies]
+  cmake = ">=3.20"
+  ninja = "*"
+  rust = "1.70"
+  ```
+</ParamField>
+
+### Host Dependencies
+
+Host dependencies are libraries and headers needed during compilation that target the **host platform** (the platform where the built package will run).
+
+<ParamField path="package.host-dependencies" type="object">
+  Dependencies required at build time that are compiled for the target platform.
+  
+  **Common examples:**
+  - Development libraries (`openssl`, `zlib-devel`)
+  - Header files
+  - Python (when building Python extensions)
+  - Build backends (`hatchling`, `setuptools-rust`, `maturin`)
+  
+  **When to use:**
+  Use host dependencies for libraries you link against or headers you include during compilation.
+  
+  **Example:**
+  ```toml
+  [package.host-dependencies]
+  python = ">=3.8"
+  openssl = ">=3.0"
+  hatchling = "*"
+  ```
+</ParamField>
+
+### Run Dependencies
+
+Run dependencies are packages needed when executing the built software on the **target platform**.
+
+<ParamField path="package.run-dependencies" type="object">
+  Dependencies required at runtime by the installed package.
+  
+  **Common examples:**
+  - Shared libraries the binary links against
+  - Python packages imported by your code
+  - Runtime interpreters
+  - Data files and resources
+  
+  **When to use:**
+  Use run dependencies for anything needed when using the installed package.
+  
+  **Example:**
+  ```toml
+  [package.run-dependencies]
+  requests = ">=2.28"
+  numpy = ">=1.20"
+  openssl = ">=3.0"
+  ```
+</ParamField>
+
+## Cross-Compilation Context
+
+The distinction between build, host, and run dependencies is crucial for cross-compilation:
+
+```
+Build Platform       Host/Target Platform
+(where you build)    (where it runs)
+     │                      │
+     │                      │
+     ▼                      ▼
+build-dependencies    host-dependencies
+     │                      │
+     │                      ▼
+     │              run-dependencies
+     │                      │
+     └──────────────────────┘
+              build process
+```
+
+- **Build platform**: The machine performing the compilation (e.g., `linux-64`)
+- **Host/Target platform**: The machine where the package will run (e.g., `osx-arm64`)
+
+For native compilation (build platform = host platform), the distinction is less critical but still useful for organization.
+
+## Practical Examples
+
+### Python Package with C Extensions
+
+```toml
+[package]
+name = "my-python-package"
+version = "1.0.0"
+
+[package.build]
+backend = { name = "pixi-build-python", version = "*" }
+channels = ["https://prefix.dev/conda-forge"]
+
+# Tools that run during build
+[package.build-dependencies]
+python = ">=3.8"  # Python interpreter for running build scripts
+
+# Libraries to link against
+[package.host-dependencies]
+python = ">=3.8"  # Python headers for extension modules
+hatchling = "*"   # Build backend
+openssl = ">=3.0" # Headers for linking
+
+# Runtime dependencies
+[package.run-dependencies]
+python = ">=3.8"  # Python interpreter for running code
+requests = ">=2.28" # Python packages imported by your code
+openssl = ">=3.0" # Shared library needed at runtime
+```
+
+### Rust Binary
+
+```toml
+[package]
+name = "my-rust-tool"
+version = "1.0.0"
+
+[package.build]
+backend = { name = "pixi-build-rust", version = "*" }
+channels = ["https://prefix.dev/conda-forge"]
+
+# Compiler and build tools
+[package.build-dependencies]
+rust = ">=1.70"
+cargo = "*"
+
+# Libraries to link against (if any)
+[package.host-dependencies]
+openssl = ">=3.0"
+
+# Runtime shared libraries
+[package.run-dependencies]
+openssl = ">=3.0"  # Dynamically linked at runtime
+```
+
+### CMake C++ Project
+
+```toml
+[package]
+name = "my-cpp-lib"
+version = "1.0.0"
+
+[package.build]
+backend = { name = "pixi-build-cmake", version = "*" }
+channels = ["https://prefix.dev/conda-forge"]
+
+[package.build.config]
+compilers = ["c", "cxx"]
+
+# Build system and compilers
+[package.build-dependencies]
+cmake = ">=3.20"
+ninja = "*"
+# Note: compilers are added automatically via config.compilers
+
+# Development headers and libraries
+[package.host-dependencies]
+boost-cpp = ">=1.70"
+zlib = "*"
+
+# Runtime libraries
+[package.run-dependencies]
+boost-cpp = ">=1.70"
+zlib = "*"
+```
+
+### Mojo Package
+
+```toml
+[package]
+name = "greetings"
+version = "0.1.0"
+
+[package.build]
+backend = { name = "pixi-build-mojo", version = "0.1.*" }
+channels = ["https://prefix.dev/conda-forge"]
+
+# Mojo compiler for building
+[package.build-dependencies]
+mojo-compiler = "=25.5.0"
+small_time = ">=25.4.1,<26"  # Build-time dependency
+extramojo = ">=0.16.0,<0.17"
+
+# Mojo compiler for the target platform
+[package.host-dependencies]
+mojo-compiler = "=25.5.0"
+
+# Runtime dependencies
+[package.run-dependencies]
+mojo-compiler = "=25.5.0"
+```
+
+## Common Patterns
+
+### Same Package in Multiple Categories
+
+Some packages appear in multiple dependency categories:
+
+```toml
+[package.build-dependencies]
+python = ">=3.8"  # Runs build scripts
+
+[package.host-dependencies]
+python = ">=3.8"  # Provides headers for C extensions
+
+[package.run-dependencies]
+python = ">=3.8"  # Needed to run the code
+```
+
+This is normal and correct - each serves a different purpose.
+
+### Automatic Backend Dependencies
+
+Build backends automatically add certain dependencies:
+
+- **pixi-build-python**: Adds `python` and `pip` (or `uv`)
+- **pixi-build-rust**: Adds `rust` and `cargo`
+- **pixi-build-cmake**: Adds `cmake`, `ninja`, and configured compilers
+
+You only need to explicitly specify these if you require specific versions:
+
+```toml
+# Explicit version override
+[package.build-dependencies]
+python = "3.11"  # Override automatic Python version
+```
+
+### Compilers as Dependencies
+
+When you specify compilers in `[package.build.config]`, they are automatically added as build dependencies:
+
+```toml
+[package.build.config]
+compilers = ["c", "cxx", "fortran"]
+
+# No need to manually add in [package.build-dependencies]
+# These are added automatically:
+# - c_compiler_stub
+# - cxx_compiler_stub
+# - fortran_compiler_stub
+```
+
+## Automatic Dependency Inference
+
+Some backends automatically infer dependencies from project files:
+
+### Python Backend (with PyPI Mapping)
+
+When `ignore-pypi-mapping = false`:
+
+```toml
+# pyproject.toml
+[project]
+dependencies = [
+    "requests>=2.28",
+    "pydantic>=2.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+```
+
+The backend automatically adds:
+- `requests >=2.28` and `pydantic >=2.0` to **run-dependencies**
+- `hatchling` to **host-dependencies**
+
+You can override these in `pixi.toml`:
+
+```toml
+[package.run-dependencies]
+requests = ">=2.30"  # Overrides pyproject.toml version
+```
+
+### Rust Backend (Cargo.toml)
+
+The backend reads package metadata but dependencies must be specified in `pixi.toml`:
+
+```toml
+# Cargo.toml metadata is used for package info
+# But dependencies must be explicit in pixi.toml
+[package.run-dependencies]
+openssl = ">=3.0"  # If you link to system OpenSSL
+```
+
+## Dependency Version Specifications
+
+All dependency types support the same version specification syntax:
+
+```toml
+[package.run-dependencies]
+requests = "*"              # Any version
+numpy = ">=1.20"            # Minimum version
+pandas = ">=1.0,<2.0"       # Version range
+scipy = "1.10.*"            # Specific minor version
+tensorflow = "=2.12.0"      # Exact version
+python = ">=3.8,<3.12"      # Multiple constraints
+```
+
+## Troubleshooting
+
+### Missing Runtime Dependency
+
+If your package runs but fails with missing library errors:
+
+```bash
+Error: libssl.so.3: cannot open shared object file
+```
+
+Add the library to run-dependencies:
+
+```toml
+[package.run-dependencies]
+openssl = ">=3.0"
+```
+
+### Build Failure Due to Missing Headers
+
+If compilation fails with missing header errors:
+
+```bash
+fatal error: openssl/ssl.h: No such file or directory
+```
+
+Add the development package to host-dependencies:
+
+```toml
+[package.host-dependencies]
+openssl = ">=3.0"
+```
+
+### Build Tool Not Found
+
+If the build fails because a tool isn't found:
+
+```bash
+cmake: command not found
+```
+
+Add it to build-dependencies:
+
+```toml
+[package.build-dependencies]
+cmake = ">=3.20"
+```
+
+## See Also
+
+- [Build System Configuration](/api/build-system) - Configure backend and channels
+- [Configuration Options](/api/config-options) - Backend-specific options
+- [Conda Build Documentation](https://docs.conda.io/projects/conda-build/en/latest/resources/define-metadata.html#requirements-section) - Official conda-build requirements documentation

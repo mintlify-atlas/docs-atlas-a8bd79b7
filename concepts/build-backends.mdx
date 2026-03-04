@@ -1,0 +1,233 @@
+---
+title: Build Backends
+description: Understanding Pixi build backends and how they work
+---
+
+Build backends are specialized executables that implement a standard protocol to build conda packages from source code. They bridge the gap between Pixi's package management and the actual compilation/packaging process, allowing language-specific optimization while maintaining consistency across the ecosystem.
+
+## What Are Build Backends?
+
+A build backend is an executable program that:
+
+1. **Follows a standardized JSON-RPC protocol** to communicate with Pixi
+2. **Translates project configuration** from `pixi.toml` into build recipes
+3. **Orchestrates the build process** for a specific language or build system
+4. **Produces conda packages** that work seamlessly in the conda ecosystem
+
+This architecture decouples the building of conda packages from Pixi itself, enabling:
+
+<CardGroup cols={2}>
+  <Card title="Language-Specific Optimization" icon="code">
+    Each backend is tailored for specific programming languages and build tools, providing optimized workflows
+  </Card>
+  <Card title="Modular Design" icon="cube">
+    Backends can be developed, updated, and distributed independently from Pixi core
+  </Card>
+  <Card title="Extensibility" icon="puzzle-piece">
+    New backends can be added without modifying Pixi, supporting emerging languages and tools
+  </Card>
+  <Card title="Standardization" icon="check-circle">
+    All backends follow the same protocol and manifest specifications, ensuring consistency
+  </Card>
+</CardGroup>
+
+## Available Backends
+
+Pixi provides several official backends for different use cases:
+
+| Backend | Language/Tool | Default Compilers | Use Case |
+|---------|---------------|-------------------|----------|
+| **[pixi-build-python](/backends/pixi-build-python)** | Python | None | PEP 517/518 compliant Python packages |
+| **[pixi-build-cmake](/backends/pixi-build-cmake)** | CMake | `["cxx"]` | C/C++ projects using CMake |
+| **[pixi-build-rust](/backends/pixi-build-rust)** | Rust/Cargo | `["rust"]` | Rust applications and libraries |
+| **[pixi-build-rattler-build](/backends/pixi-build-rattler-build)** | rattler-build | N/A | Direct `recipe.yaml` builds with full control |
+| **[pixi-build-ros](/backends/pixi-build-ros)** | ROS | Varies | Robot Operating System packages |
+| **[pixi-build-mojo](/backends/pixi-build-mojo)** | Mojo | None | Mojo applications and packages |
+
+All backends are distributed through conda channels and can be installed like any other conda package.
+
+## How Backends Work
+
+The build backend workflow follows this pattern:
+
+<Steps>
+  <Step title="Backend Selection">
+    Pixi reads your `pixi.toml` and identifies the build backend specified in `[package.build]`:
+    
+    ```toml
+    [package.build]
+    backend = { name = "pixi-build-python", version = "*" }
+    channels = ["https://prefix.dev/conda-forge"]
+    ```
+  </Step>
+  
+  <Step title="Backend Installation">
+    Pixi installs the backend executable from the specified conda channels if not already available.
+  </Step>
+  
+  <Step title="Protocol Handshake">
+    Pixi initiates communication with the backend using the JSON-RPC protocol:
+    
+    - **negotiate_capabilities**: Establishes protocol version and capabilities
+    - **initialize**: Passes project configuration and build parameters
+  </Step>
+  
+  <Step title="Recipe Generation">
+    The backend processes the project model and generates a rattler-build recipe:
+    
+    - Analyzes source files and configuration
+    - Determines build variants (compiler versions, platforms, etc.)
+    - Creates intermediate recipe with all necessary metadata
+  </Step>
+  
+  <Step title="Package Building">
+    The backend executes the build process:
+    
+    - **conda_outputs**: Determines all possible output packages
+    - **conda_build_v1**: Actually builds the package(s)
+  </Step>
+</Steps>
+
+## Backend Configuration
+
+Each backend supports its own configuration options in the `[package.build.config]` section:
+
+<CodeGroup>
+```toml Python Backend
+[package.build]
+backend = { name = "pixi-build-python", version = "*" }
+channels = ["https://prefix.dev/conda-forge"]
+
+[package.build.config]
+noarch = true
+compilers = []  # Pure Python, no compilation needed
+ignore-pypi-mapping = false  # Enable automatic dependency mapping
+```
+
+```toml CMake Backend
+[package.build]
+backend = { name = "pixi-build-cmake", version = "*" }
+channels = ["https://prefix.dev/conda-forge"]
+
+[package.build.config]
+compilers = ["c", "cxx"]
+extra-args = ["-DCMAKE_BUILD_TYPE=Release"]
+env = { CMAKE_VERBOSE_MAKEFILE = "ON" }
+```
+
+```toml Rust Backend
+[package.build]
+backend = { name = "pixi-build-rust", version = "*" }
+channels = ["https://prefix.dev/conda-forge"]
+
+[package.build.config]
+compilers = ["rust"]
+```
+</CodeGroup>
+
+<Note>
+  Each backend has different default values and available options. Consult the specific backend documentation for details.
+</Note>
+
+## Backend Dependencies
+
+Backends automatically manage their build dependencies, but you can override versions when needed:
+
+```toml
+[package.build-dependencies]
+# Override the default CMake version
+cmake = "3.28.*"
+ninja = ">=1.11"
+
+# Add additional build tools
+pkg-config = "*"
+```
+
+The backend will merge your explicit dependencies with its own requirements.
+
+## Recipe Generation and Debugging
+
+When a backend runs, it generates rattler-build recipes that you can inspect:
+
+<Accordion title="Generated Recipe Locations">
+  Backends store generated recipes in your project's build directory:
+  
+  **General Recipe (all outputs):**
+  ```
+  .pixi/build/work/<package-name>--<hash>/debug/
+  ├── recipe.yaml      # Recipe for all variants
+  └── variants.yaml    # All variant configurations
+  ```
+  
+  **Variant-Specific Recipe:**
+  ```
+  .pixi/build/work/<package-name>--<hash>/debug/recipe/<variant_hash>/
+  ├── recipe.yaml      # Specific variant recipe
+  └── variants.yaml    # Single variant configuration
+  ```
+</Accordion>
+
+<Accordion title="Debugging with JSON-RPC Logs">
+  Each backend also writes JSON-RPC communication logs:
+  
+  ```
+  .pixi/build/work/<package-name>--<hash>/debug/
+  ├── project_model.json              # Your project configuration
+  ├── conda_outputs_params.json       # Output request
+  ├── conda_outputs_response.json     # Available outputs
+  ├── conda_build_v1_params.json      # Build request
+  └── conda_build_v1_response.json    # Build result
+  ```
+  
+  These files are invaluable for debugging build issues or understanding how the backend processes your configuration.
+</Accordion>
+
+## Rebuilding with rattler-build
+
+You can rebuild a package directly using the generated recipe:
+
+```bash
+# Navigate to the variant-specific recipe directory
+cd .pixi/build/work/<package-name>--<hash>/debug/recipe/<variant_hash>/
+
+# Rebuild using rattler-build
+rattler-build build
+```
+
+This allows you to:
+- Debug build failures with direct access to `rattler-build`
+- Experiment with recipe modifications
+- Understand the exact build steps the backend performs
+
+## Creating Custom Backends
+
+You can create your own build backend by implementing the protocol interface. Backends can be written in any language that supports JSON-RPC communication.
+
+<Info>
+  The protocol is defined in the source code at `/home/daytona/workspace/source/crates/pixi-build-backend/src/protocol.rs:8-46`.
+  
+  All backends must implement:
+  - `negotiate_capabilities` - Establish protocol compatibility
+  - `initialize` - Receive project configuration
+  - `conda_outputs` - Determine output packages
+  - `conda_build_v1` - Execute the build
+</Info>
+
+See the [Protocol documentation](/concepts/protocol) for detailed information about implementing a custom backend.
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Protocol" icon="exchange" href="/concepts/protocol">
+    Learn about the JSON-RPC protocol backends use to communicate with Pixi
+  </Card>
+  <Card title="Compilers" icon="wrench" href="/concepts/compilers">
+    Understand compiler detection, configuration, and cross-platform builds
+  </Card>
+  <Card title="Variants" icon="grid" href="/concepts/variants">
+    Explore how build variants create multiple package configurations
+  </Card>
+  <Card title="Backend Reference" icon="book" href="/backends/pixi-build-python">
+    Detailed documentation for each available backend
+  </Card>
+</CardGroup>

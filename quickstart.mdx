@@ -1,80 +1,365 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Build your first conda package with Pixi Build Backends in minutes
 ---
 
-## Get started in three steps
+<Note>
+  Before starting, make sure you have [Pixi](https://pixi.sh) installed. If not, follow the [installation guide](https://pixi.sh/latest/getting_started/).
+</Note>
 
-Get your documentation site running locally and make your first customization.
+## Choose Your Language
 
-### Step 1: Set up your local environment
+Select the quickstart guide for your project's language:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+<Tabs>
+  <Tab title="Python">
+    ## Build a Python Package
 
-### Step 2: Deploy your changes
+    This guide shows you how to build a Python package using the `pixi-build-python` backend.
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
+    <Steps>
+      <Step title="Create a Python project">
+        Create a new directory with a basic Python package structure:
+
+        ```bash
+        mkdir my-python-package
+        cd my-python-package
+        ```
+
+        Create a `pyproject.toml` file:
+
+        ```toml pyproject.toml
+        [project]
+        name = "my-package"
+        version = "0.1.0"
+        description = "My awesome Python package"
+        requires-python = ">=3.8"
+        dependencies = [
+            "requests>=2.28",
+        ]
+
+        [build-system]
+        requires = ["hatchling"]
+        build-backend = "hatchling.build"
+        ```
+
+        Create a simple Python module:
+
+        ```bash
+        mkdir -p my_package
+        echo 'def hello(): return "Hello from my package!"' > my_package/__init__.py
+        ```
+      </Step>
+
+      <Step title="Initialize Pixi project">
+        Create a `pixi.toml` file to enable Pixi build:
+
+        ```toml pixi.toml
+        [workspace]
+        preview = ["pixi-build"]
+        channels = ["https://prefix.dev/conda-forge"]
+        platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
+
+        [package]
+        name = "my-package"
+        version = "0.1.0"
+
+        [package.build]
+        backend = { name = "pixi-build-python", version = "*" }
+        channels = ["https://prefix.dev/conda-forge"]
+        ```
+
+        <Info>
+          The `preview = ["pixi-build"]` line enables the experimental pixi-build feature.
+        </Info>
+      </Step>
+
+      <Step title="Build the package">
+        Build your conda package:
+
+        ```bash
+        pixi build
+        ```
+
+        You'll see output like:
+
+        ```
+        ✓ Build completed successfully
+        📦 Package: output/linux-64/my-package-0.1.0-py311_0.conda
+        ```
+      </Step>
+
+      <Step title="Install and test">
+        Install the package locally:
+
+        ```bash
+        pixi install
+        ```
+
+        Test it works:
+
+        ```bash
+        pixi run python -c "from my_package import hello; print(hello())"
+        ```
+      </Step>
+    </Steps>
+
+    ### Next Steps for Python
+
+    - Learn about [Python backend configuration](/backends/pixi-build-python)
+    - Enable PyPI-to-conda dependency mapping in the [Python backend docs](/backends/pixi-build-python)
+    - Add C extensions with compilers in the [Python backend docs](/backends/pixi-build-python)
+  </Tab>
+
+  <Tab title="Rust">
+    ## Build a Rust Package
+
+    This guide shows you how to build a Rust package using the `pixi-build-rust` backend.
+
+    <Steps>
+      <Step title="Create a Rust project">
+        Create a new Rust library:
+
+        ```bash
+        cargo new --lib my-rust-package
+        cd my-rust-package
+        ```
+
+        Your `Cargo.toml` should look like:
+
+        ```toml Cargo.toml
+        [package]
+        name = "my-rust-package"
+        version = "0.1.0"
+        edition = "2021"
+
+        [dependencies]
+        serde = { version = "1.0", features = ["derive"] }
+        ```
+      </Step>
+
+      <Step title="Add Pixi configuration">
+        Create a `pixi.toml` file:
+
+        ```toml pixi.toml
+        [workspace]
+        preview = ["pixi-build"]
+        channels = ["https://prefix.dev/conda-forge"]
+        platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
+
+        [package]
+        name = "my-rust-package"
+        version = "0.1.0"
+
+        [package.build]
+        backend = { name = "pixi-build-rust", version = "*" }
+        channels = ["https://prefix.dev/conda-forge"]
+        ```
+      </Step>
+
+      <Step title="Build the package">
+        Build your conda package:
+
+        ```bash
+        pixi build
+        ```
+
+        The backend will automatically:
+        - Extract metadata from `Cargo.toml`
+        - Detect Rust compiler requirements
+        - Build with cargo
+        - Package the library files
+      </Step>
+
+      <Step title="Install the package">
+        ```bash
+        pixi install
+        ```
+
+        Your Rust library is now available as a conda package!
+      </Step>
+    </Steps>
+
+    ### Next Steps for Rust
+
+    - Learn about [Rust backend configuration](/backends/pixi-build-rust)
+    - Explore sccache optimization in the [Rust backend docs](/backends/pixi-build-rust)
+    - Handle OpenSSL dependencies in the [Rust backend docs](/backends/pixi-build-rust)
+  </Tab>
+
+  <Tab title="C/C++ (CMake)">
+    ## Build a CMake Package
+
+    This guide shows you how to build a C/C++ project using the `pixi-build-cmake` backend.
+
+    <Steps>
+      <Step title="Create a CMake project">
+        Create a simple CMake project:
+
+        ```bash
+        mkdir my-cmake-package
+        cd my-cmake-package
+        ```
+
+        Create `CMakeLists.txt`:
+
+        ```cmake CMakeLists.txt
+        cmake_minimum_required(VERSION 3.15)
+        project(my-cmake-package VERSION 0.1.0)
+
+        add_library(mylib src/mylib.cpp)
+        target_include_directories(mylib PUBLIC include)
+
+        install(TARGETS mylib DESTINATION lib)
+        install(DIRECTORY include/ DESTINATION include)
+        ```
+
+        Create source files:
+
+        ```bash
+        mkdir -p src include
+        echo '#include <string>\nstd::string hello() { return "Hello from CMake!"; }' > src/mylib.cpp
+        echo '#include <string>\nstd::string hello();' > include/mylib.h
+        ```
+      </Step>
+
+      <Step title="Add Pixi configuration">
+        Create a `pixi.toml` file:
+
+        ```toml pixi.toml
+        [workspace]
+        preview = ["pixi-build"]
+        channels = ["https://prefix.dev/conda-forge"]
+        platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
+
+        [package]
+        name = "my-cmake-package"
+        version = "0.1.0"
+
+        [package.build]
+        backend = { name = "pixi-build-cmake", version = "*" }
+        channels = ["https://prefix.dev/conda-forge"]
+
+        [package.build.config]
+        compilers = ["cxx"]
+        ```
+
+        <Info>
+          The `compilers = ["cxx"]` line tells the backend to include a C++ compiler.
+        </Info>
+      </Step>
+
+      <Step title="Build the package">
+        ```bash
+        pixi build
+        ```
+
+        The backend will:
+        - Configure with CMake
+        - Build with Ninja
+        - Install to the package prefix
+        - Create the conda package
+      </Step>
+
+      <Step title="Install and use">
+        ```bash
+        pixi install
+        ```
+
+        Your C++ library is now available as a conda package!
+      </Step>
+    </Steps>
+
+    ### Next Steps for CMake
+
+    - Learn about [CMake backend configuration](/backends/pixi-build-cmake)
+    - Pass custom CMake flags in the [CMake backend docs](/backends/pixi-build-cmake)
+    - Configure [cross-platform compilers](/concepts/compilers)
+  </Tab>
+</Tabs>
+
+## Common Build Configurations
+
+### Target-Specific Builds
+
+Build for specific platforms:
+
+```toml pixi.toml
+[package.build.target.win-64.config]
+compilers = ["c", "cxx"]
+
+[package.build.target.linux-64.config]
+env = { CFLAGS = "-O3" }
+```
+
+### Adding Dependencies
+
+Specify build, host, and runtime dependencies:
+
+```toml pixi.toml
+[package.build-dependencies]
+cmake = ">=3.15"
+ninja = "*"
+
+[package.host-dependencies]
+libcurl = ">=7.0"
+
+[package.run-dependencies]
+libcurl = ">=7.0"
+```
+
+### Environment Variables
+
+Set environment variables during build:
+
+```toml pixi.toml
+[package.build.config]
+env = { 
+    CUSTOM_FLAG = "enabled",
+    BUILD_TYPE = "release"
+}
+```
+
+## Troubleshooting
+
+<Accordion title="Build fails with 'backend not found'">
+  Make sure you have the `preview = ["pixi-build"]` line in your `pixi.toml` under `[workspace]`. The pixi-build feature is currently experimental.
 </Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
+<Accordion title="Package version doesn't match">
+  Ensure the `version` field in `[package]` matches the version in your language-specific manifest (`pyproject.toml`, `Cargo.toml`, etc.).
 </Accordion>
 
-## Next steps
+<Accordion title="Dependencies not resolving">
+  Check that:
+  - Your `channels` list includes `https://prefix.dev/conda-forge`
+  - Dependency names are conda package names, not PyPI/cargo names
+  - You're using the correct dependency type (build/host/run)
+</Accordion>
 
-Now that you have your docs running, explore these key features:
+<Accordion title="Build succeeds but install fails">
+  Run `pixi build` with verbose output:
+  
+  ```bash
+  RUST_LOG=debug pixi build
+  ```
+  
+  Check the generated recipe in `.pixi/build/work/<package-name>--<hash>/debug/recipe.yaml`
+</Accordion>
+
+## Next Steps
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Backend Configuration" icon="sliders" href="/guides/configuration">
+    Learn about all configuration options for your backend
+  </Card>
+  <Card title="Core Concepts" icon="lightbulb" href="/concepts/build-backends">
+    Understand how build backends work under the hood
+  </Card>
+  <Card title="Debugging" icon="bug" href="/guides/debugging">
+    Learn how to troubleshoot build issues
+  </Card>
+  <Card title="Backend Reference" icon="book" href="/backends/overview">
+    Explore all available backends and their features
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

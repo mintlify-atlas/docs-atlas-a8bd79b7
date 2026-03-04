@@ -1,0 +1,502 @@
+---
+title: Build Variants
+description: Understanding build variants and how they create multiple package configurations
+---
+
+Build variants allow you to build multiple versions of the same package with different configurations, such as different compiler versions, Python versions, or platform-specific settings. This creates a build matrix where each combination of variant values produces a separate output package.
+
+## What Are Build Variants?
+
+Build variants are key-value pairs that control package build configuration. Common variant keys include:
+
+- **Compiler variants**: `c_compiler`, `cxx_compiler`, `fortran_compiler`
+- **Compiler versions**: `c_compiler_version`, `cxx_compiler_version`
+- **Language versions**: `python`, `perl`, `r_base`
+- **Platform settings**: `target_platform`
+
+Each variant key can have multiple values, and the build system creates outputs for all valid combinations.
+
+## How Variants Work
+
+The variant system follows this process:
+
+<Steps>
+  <Step title="Determine Used Variants">
+    The backend analyzes your project to identify which variant keys are actually used. For example, if you specify `compilers = ["cxx"]`, the backend knows it needs `cxx_compiler` and `cxx_compiler_version` variants.
+  </Step>
+  
+  <Step title="Collect Variant Values">
+    Variant values come from multiple sources with this precedence:
+    1. Explicit `[workspace.build-variants]` in your `pixi.toml`
+    2. Platform-specific `[workspace.target.<platform>.build-variants]`
+    3. Backend defaults
+    4. conda-forge defaults
+  </Step>
+  
+  <Step title="Compute Combinations">
+    The build system computes all valid combinations of variant values. This is where the build matrix is created.
+    
+    From `/home/daytona/workspace/source/crates/pixi-build-backend/src/common/variants.rs:12-31`:
+    
+    ```rust
+    pub fn compute_variants<P: ProjectModel>(
+        project_model: &P,
+        input_variant_configuration: Option<BTreeMap<NormalizedKey, Vec<Variable>>>,
+        host_platform: Platform,
+    ) -> miette::Result<Vec<BTreeMap<NormalizedKey, Variable>>> {
+        let variant_config = VariantConfig {
+            variants: input_variant_configuration.unwrap_or_default(),
+            pin_run_as_build: None,
+            zip_keys: None,
+        };
+
+        let used_variants = project_model.used_variants(Some(host_platform));
+
+        variant_config
+            .combinations(&used_variants, None)
+            .into_diagnostic()
+    }
+    ```
+  </Step>
+  
+  <Step title="Generate Outputs">
+    For each variant combination, the backend generates a separate output package. Each output has its own build recipe with the specific variant values substituted.
+  </Step>
+</Steps>
+
+## Variant Configuration
+
+### Workspace-Level Variants
+
+Define variants in your workspace configuration to apply them to all packages:
+
+```toml
+[workspace.build-variants]
+c_compiler = ["gcc", "clang"]
+c_compiler_version = ["11.4", "14.0"]
+```
+
+This creates a **2 × 2 matrix** = **4 combinations**:
+1. `gcc 11.4`
+2. `gcc 14.0`
+3. `clang 11.4`
+4. `clang 14.0`
+
+### Platform-Specific Variants
+
+Override variants for specific platforms:
+
+```toml
+# Base variants for all platforms
+[workspace.build-variants]
+cxx_compiler = ["gcc"]
+cxx_compiler_version = ["11.4"]
+
+# Windows uses Visual Studio instead
+[workspace.target.win-64.build-variants]
+cxx_compiler = ["vs2022"]
+cxx_compiler_version = ["19.36"]
+```
+
+<Warning>
+  Platform-specific variants **replace** the base variants entirely for that platform. They do not merge.
+</Warning>
+
+### Single-Value Variants
+
+Variants with a single value don't create additional outputs:
+
+```toml
+[workspace.build-variants]
+python = ["3.11"]  # Only build for Python 3.11
+```
+
+This pins the Python version without creating a build matrix.
+
+## Common Variant Patterns
+
+### Compiler Variants
+
+Compiler variants are the most common use case:
+
+<CodeGroup>
+```toml Single Compiler
+[package.build.config]
+compilers = ["cxx"]
+
+[workspace.build-variants]
+cxx_compiler = ["gcc"]
+cxx_compiler_version = ["11.4"]
+```
+
+```toml Multiple Compilers
+[package.build.config]
+compilers = ["c", "cxx"]
+
+[workspace.build-variants]
+c_compiler = ["gcc"]
+cxx_compiler = ["gxx"]
+c_compiler_version = ["11.4", "14.0"]
+cxx_compiler_version = ["11.4", "14.0"]
+```
+
+```toml Cross-Platform
+# Linux: GCC
+[workspace.target.linux-64.build-variants]
+cxx_compiler = ["gcc"]
+cxx_compiler_version = ["11.4"]
+
+# macOS: Clang
+[workspace.target.osx-64.build-variants]
+cxx_compiler = ["clang"]
+cxx_compiler_version = ["14.0"]
+
+# Windows: Visual Studio
+[workspace.target.win-64.build-variants]
+cxx_compiler = ["vs2022"]
+```
+</CodeGroup>
+
+See the [Compilers documentation](/concepts/compilers) for more details on compiler variants.
+
+### Python Version Variants
+
+Build packages for multiple Python versions:
+
+```toml
+[package.build.config]
+compilers = []  # Pure Python package
+
+[workspace.build-variants]
+python = ["3.9", "3.10", "3.11", "3.12"]
+```
+
+This creates **4 outputs**, one for each Python version.
+
+<Info>
+  The `python` variant is commonly used in Python packages to ensure compatibility across Python versions.
+</Info>
+
+### CUDA Version Variants
+
+For GPU-enabled packages:
+
+```toml
+[package.build.target.linux-64.config]
+compilers = ["cxx", "cuda"]
+
+[workspace.target.linux-64.build-variants]
+cuda_compiler_version = ["11.8", "12.0"]
+```
+
+This builds separate packages for CUDA 11.8 and 12.0.
+
+## Variant Combination Rules
+
+### Cartesian Product
+
+By default, variants create a **cartesian product** (all combinations):
+
+```toml
+[workspace.build-variants]
+python = ["3.10", "3.11"]
+numpy = ["1.24", "1.25"]
+```
+
+**Result**: 2 × 2 = **4 outputs**
+- `python=3.10, numpy=1.24`
+- `python=3.10, numpy=1.25`
+- `python=3.11, numpy=1.24`
+- `python=3.11, numpy=1.25`
+
+### Zip Keys
+
+Sometimes you want variants to move together instead of creating all combinations. rattler-build supports "zip keys" for this:
+
+```yaml
+# In a rattler-build recipe.yaml
+variants:
+  zip_keys:
+    - [python, numpy]
+  python:
+    - "3.10"
+    - "3.11"
+  numpy:
+    - "1.24"
+    - "1.25"
+```
+
+**Result**: 2 outputs (zipped together)
+- `python=3.10, numpy=1.24`
+- `python=3.11, numpy=1.25`
+
+<Note>
+  Zip keys are currently only available when using the `pixi-build-rattler-build` backend with a custom `recipe.yaml`. Other backends don't yet support zip keys through `pixi.toml` configuration.
+</Note>
+
+## Variant Resolution
+
+Variant values are resolved with this precedence (highest to lowest):
+
+1. **Explicit workspace variants** in `[workspace.build-variants]` or `[workspace.target.<platform>.build-variants]`
+2. **Backend defaults** (e.g., `vs2022` for Windows in Python/CMake backends)
+3. **conda-forge defaults** from the conda-forge variant configuration
+
+### Backend Defaults
+
+Some backends set default variants. For example, the Python and CMake backends set:
+
+```toml
+# On Windows platforms only
+[workspace.build-variants]
+c_compiler = ["vs2022"]
+cxx_compiler = ["vs2022"]
+```
+
+You can override these by explicitly setting variants:
+
+```toml
+[workspace.build-variants]
+c_compiler = ["vs2019"]  # Override the vs2022 default
+cxx_compiler = ["vs2019"]
+```
+
+## Variant Hashing
+
+Each variant combination gets a unique hash used in file paths:
+
+```
+.pixi/build/work/<package-name>--<hash>/debug/recipe/<variant_hash>/
+```
+
+The `<variant_hash>` ensures different variant combinations don't overwrite each other's build artifacts.
+
+## Practical Examples
+
+<AccordionGroup>
+  <Accordion title="Single Compiler, Multiple Versions">
+    Build a C++ package with different GCC versions:
+    
+    ```toml
+    [package.build]
+    backend = { name = "pixi-build-cmake", version = "*" }
+    channels = ["https://prefix.dev/conda-forge"]
+    
+    [package.build.config]
+    compilers = ["cxx"]
+    
+    [workspace.build-variants]
+    cxx_compiler = ["gcc"]
+    cxx_compiler_version = ["9.5", "11.4", "13.2"]
+    ```
+    
+    **Outputs**: 3 packages (one per GCC version)
+  </Accordion>
+  
+  <Accordion title="Multi-Compiler Matrix">
+    Build with both GCC and Clang:
+    
+    ```toml
+    [package.build.config]
+    compilers = ["cxx"]
+    
+    [workspace.build-variants]
+    cxx_compiler = ["gcc", "clang"]
+    cxx_compiler_version = ["11.4", "14.0"]
+    ```
+    
+    **Outputs**: 2 × 2 = 4 packages
+    - `gcc 11.4`
+    - `gcc 14.0`
+    - `clang 11.4`
+    - `clang 14.0`
+  </Accordion>
+  
+  <Accordion title="Python Multi-Version Package">
+    Build a pure Python package for multiple Python versions:
+    
+    ```toml
+    [package.build]
+    backend = { name = "pixi-build-python", version = "*" }
+    channels = ["https://prefix.dev/conda-forge"]
+    
+    [package.build.config]
+    noarch = true
+    compilers = []
+    
+    [workspace.build-variants]
+    python = ["3.9", "3.10", "3.11", "3.12"]
+    ```
+    
+    **Outputs**: 4 packages (one per Python version)
+  </Accordion>
+  
+  <Accordion title="Platform-Specific Variants">
+    Use different compilers on different platforms:
+    
+    ```toml
+    [package.build.config]
+    compilers = ["cxx"]
+    
+    # Linux: GCC only
+    [workspace.target.linux-64.build-variants]
+    cxx_compiler = ["gcc"]
+    cxx_compiler_version = ["11.4"]
+    
+    # macOS: Clang only
+    [workspace.target.osx-64.build-variants]
+    cxx_compiler = ["clang"]
+    cxx_compiler_version = ["14.0"]
+    
+    # Windows: Visual Studio 2022
+    [workspace.target.win-64.build-variants]
+    cxx_compiler = ["vs2022"]
+    ```
+    
+    **Outputs**: 1 package per platform (no cross-compilation)
+  </Accordion>
+  
+  <Accordion title="CUDA Multi-Version Build">
+    Build GPU-enabled packages for multiple CUDA versions:
+    
+    ```toml
+    [package.build.target.linux-64.config]
+    compilers = ["cxx", "cuda"]
+    
+    [workspace.target.linux-64.build-variants]
+    cxx_compiler = ["gcc"]
+    cxx_compiler_version = ["11.4"]
+    cuda_compiler_version = ["11.8", "12.0", "12.1"]
+    ```
+    
+    **Outputs**: 3 packages (one per CUDA version)
+  </Accordion>
+  
+  <Accordion title="Constrained Build Matrix">
+    Limit the build matrix to specific combinations:
+    
+    ```toml
+    # Build only for the latest Python with latest NumPy
+    [workspace.build-variants]
+    python = ["3.12"]
+    numpy = ["1.26"]
+    
+    # Or build for multiple Pythons but pin NumPy
+    [workspace.build-variants]
+    python = ["3.10", "3.11", "3.12"]
+    numpy = ["1.26"]  # Single value = no matrix expansion
+    ```
+    
+    **Outputs**: 3 packages (one per Python version, all with NumPy 1.26)
+  </Accordion>
+</AccordionGroup>
+
+## Debugging Variants
+
+When the backend processes variants, it logs the results:
+
+### Variant Configuration Files
+
+Inspect the generated `variants.yaml` to see resolved variant values:
+
+```yaml
+# .pixi/build/work/<package-name>--<hash>/debug/variants.yaml
+c_compiler:
+  - gcc
+  - clang
+c_compiler_version:
+  - 11.4
+  - 14.0
+```
+
+### Output Discovery
+
+Check `conda_outputs_response.json` to see all generated outputs:
+
+```json
+{
+  "outputs": [
+    {
+      "name": "my-package",
+      "version": "1.0.0",
+      "variant": {
+        "c_compiler": "gcc",
+        "c_compiler_version": "11.4"
+      }
+    },
+    {
+      "name": "my-package",
+      "version": "1.0.0",
+      "variant": {
+        "c_compiler": "gcc",
+        "c_compiler_version": "14.0"
+      }
+    },
+    {
+      "name": "my-package",
+      "version": "1.0.0",
+      "variant": {
+        "c_compiler": "clang",
+        "c_compiler_version": "11.4"
+      }
+    },
+    {
+      "name": "my-package",
+      "version": "1.0.0",
+      "variant": {
+        "c_compiler": "clang",
+        "c_compiler_version": "14.0"
+      }
+    }
+  ]
+}
+```
+
+This shows exactly which variant combinations were generated.
+
+## Variant Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Start Minimal" icon="seedling">
+    Begin with no variants or single values. Add variant matrices only when you need to support multiple configurations.
+  </Card>
+  
+  <Card title="Test Combinations" icon="flask">
+    Not all variant combinations make sense. Test to ensure each combination builds successfully.
+  </Card>
+  
+  <Card title="Consider Build Time" icon="clock">
+    Each variant combination creates a separate build. A 3×3 matrix means 9 builds.
+  </Card>
+  
+  <Card title="Use Platform Variants" icon="layer-group">
+    Different platforms often need different variants. Use `[workspace.target.<platform>.build-variants]` instead of trying to create a single variant set for all platforms.
+  </Card>
+</CardGroup>
+
+## Limitations
+
+<Warning>
+  **Current Limitations:**
+  
+  - Zip keys are not yet supported in `pixi.toml` (only in `recipe.yaml` with `pixi-build-rattler-build`)
+  - Platform-specific variants completely replace base variants (no merging)
+  - Variant filtering based on compatibility is not yet implemented
+</Warning>
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Compilers" icon="wrench" href="/concepts/compilers">
+    Compiler variants and how they affect package builds
+  </Card>
+  <Card title="Build Backends" icon="cube" href="/concepts/build-backends">
+    How backends process variant configurations
+  </Card>
+  <Card title="Protocol" icon="exchange" href="/concepts/protocol">
+    How variants are communicated via the JSON-RPC protocol
+  </Card>
+  <Card title="rattler-build Variants" icon="book" href="https://rattler.build/latest/variants/">
+    Detailed rattler-build variant documentation
+  </Card>
+</CardGroup>

@@ -1,0 +1,253 @@
+---
+title: 'Protocol Specification'
+description: 'JSON-RPC protocol specification for pixi-build backends'
+---
+
+## Overview
+
+The pixi-build backend protocol uses JSON-RPC 2.0 for communication between the frontend (pixi) and backend implementations. Backends can communicate over:
+
+- **stdin/stdout** - Default mode for subprocess-based backends
+- **HTTP** - Alternative mode for network-based communication on `127.0.0.1`
+
+The protocol is defined in `/home/daytona/workspace/source/crates/pixi-build-backend/src/protocol.rs` and `/home/daytona/workspace/source/crates/pixi-build-backend/src/server.rs`.
+
+## Protocol Lifecycle
+
+### 1. Negotiate Capabilities
+
+**Method:** `pixi/negotiate_capabilities`
+
+The first RPC call to establish what features the backend supports.
+
+<ResponseField name="params" type="NegotiateCapabilitiesParams">
+  Parameters for capability negotiation
+</ResponseField>
+
+<ResponseField name="result" type="NegotiateCapabilitiesResult">
+  <Expandable title="properties">
+    <ResponseField name="capabilities" type="BackendCapabilities">
+      Capabilities supported by the backend
+      <Expandable title="properties">
+        <ResponseField name="providesCondaMetadata" type="boolean" default="false">
+          Whether the backend can provide metadata about source packages
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### 2. Initialize
+
+**Method:** `pixi/initialize`
+
+Initializes the backend with source directory and project information.
+
+<ResponseField name="params" type="InitializeParams">
+  <Expandable title="properties">
+    <ResponseField name="sourceDir" type="string" required>
+      Absolute path to the directory containing source files
+    </ResponseField>
+    <ResponseField name="capabilities" type="FrontendCapabilities" required>
+      Capabilities provided by the frontend
+    </ResponseField>
+    <ResponseField name="project_model" type="ProjectModel">
+      Optional project model passed to the backend. See [ProjectModel](/api/project-model) for details.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="result" type="InitializeResult">
+  <Expandable title="properties">
+    <ResponseField name="capabilities" type="BackendCapabilities" required>
+      Backend capabilities (see Negotiate Capabilities)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### 3. Conda Outputs
+
+**Method:** `pixi/conda_outputs`
+
+Queries the backend for available package outputs and their metadata.
+
+<ResponseField name="params" type="CondaOutputsParams">
+  <Expandable title="properties">
+    <ResponseField name="work_directory" type="string" required>
+      Working directory for the build process
+    </ResponseField>
+    <ResponseField name="host_platform" type="Platform" required>
+      Target platform for the build (e.g., "linux-64", "osx-arm64")
+    </ResponseField>
+    <ResponseField name="channels" type="array">
+      Array of channel URLs for dependency resolution
+    </ResponseField>
+    <ResponseField name="variant_files" type="array">
+      Paths to variant configuration files
+    </ResponseField>
+    <ResponseField name="variant_configuration" type="object">
+      Variant configuration for build matrices
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="result" type="CondaOutputsResult">
+  <Expandable title="properties">
+    <ResponseField name="outputs" type="array" required>
+      Array of CondaOutput objects describing available packages
+      <Expandable title="CondaOutput properties">
+        <ResponseField name="name" type="string" required>
+          Package name
+        </ResponseField>
+        <ResponseField name="version" type="string">
+          Package version
+        </ResponseField>
+        <ResponseField name="build" type="string">
+          Build string
+        </ResponseField>
+        <ResponseField name="subdir" type="string" required>
+          Subdirectory/platform (e.g., "linux-64")
+        </ResponseField>
+        <ResponseField name="variant" type="object">
+          Variant configuration used for this output
+        </ResponseField>
+        <ResponseField name="metadata" type="CondaOutputMetadata">
+          Package metadata including dependencies and run exports
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="source_globs" type="array">
+      Glob patterns for source files that affect the build
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### 4. Conda Build
+
+**Method:** `pixi/conda_build_v1`
+
+Builds a conda package based on the specified output.
+
+<ResponseField name="params" type="CondaBuildV1Params">
+  <Expandable title="properties">
+    <ResponseField name="output" type="CondaBuildV1Output" required>
+      Specifies which output to build
+      <Expandable title="properties">
+        <ResponseField name="name" type="string" required>
+          Package name to build
+        </ResponseField>
+        <ResponseField name="version" type="string">
+          Package version
+        </ResponseField>
+        <ResponseField name="build" type="string">
+          Build string
+        </ResponseField>
+        <ResponseField name="subdir" type="Platform" required>
+          Target platform subdirectory
+        </ResponseField>
+        <ResponseField name="variant" type="object">
+          Variant configuration
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="work_directory" type="string" required>
+      Working directory for build artifacts
+    </ResponseField>
+    <ResponseField name="output_directory" type="string">
+      Directory where the package artifact should be placed
+    </ResponseField>
+    <ResponseField name="channels" type="array" required>
+      Channel URLs for dependency resolution
+    </ResponseField>
+    <ResponseField name="build_prefix" type="string">
+      Build environment prefix path
+    </ResponseField>
+    <ResponseField name="host_prefix" type="string">
+      Host environment prefix path
+    </ResponseField>
+    <ResponseField name="run_dependencies" type="array">
+      Runtime dependencies to include
+    </ResponseField>
+    <ResponseField name="run_constraints" type="array">
+      Runtime constraints to apply
+    </ResponseField>
+    <ResponseField name="run_exports" type="object">
+      Run exports configuration
+    </ResponseField>
+    <ResponseField name="editable" type="boolean">
+      Whether to create an editable install
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="result" type="CondaBuildV1Result">
+  <Expandable title="properties">
+    <ResponseField name="output_file" type="string" required>
+      Path to the generated package file (.conda or .tar.bz2)
+    </ResponseField>
+    <ResponseField name="name" type="string" required>
+      Built package name
+    </ResponseField>
+    <ResponseField name="version" type="string" required>
+      Built package version
+    </ResponseField>
+    <ResponseField name="build" type="string" required>
+      Build string of the package
+    </ResponseField>
+    <ResponseField name="subdir" type="string" required>
+      Platform subdirectory
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Debug Output
+
+The server automatically logs debug information to the work directory:
+
+- `{work_directory}/debug/project_model.json` - Project model received during initialization
+- `{work_directory}/debug/conda_outputs_params.json` - Parameters for conda_outputs call
+- `{work_directory}/debug/conda_outputs_response.json` - Response from conda_outputs
+- `{work_directory}/debug/conda_outputs_error.json` - Error if conda_outputs failed
+- `{work_directory}/debug/conda_build_v1_params.json` - Parameters for conda_build_v1 call
+- `{work_directory}/debug/conda_build_v1_response.json` - Response from conda_build_v1
+- `{work_directory}/debug/conda_build_v1_error.json` - Error if conda_build_v1 failed
+
+## Error Handling
+
+Errors are returned using JSON-RPC error responses with code `-32000` (Server Error). The error data field contains a detailed diagnostic report in JSON format generated by miette.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "error": {
+    "code": -32000,
+    "message": "Error description",
+    "data": {
+      // Miette diagnostic information
+    }
+  },
+  "id": 1
+}
+```
+
+## Implementation Guide
+
+To implement a pixi-build backend:
+
+1. Implement the `ProtocolInstantiator` trait:
+   - `negotiate_capabilities()` - Return backend capabilities
+   - `initialize()` - Set up backend state and return a Protocol instance
+
+2. Implement the `Protocol` trait:
+   - `conda_outputs()` - Return available package outputs
+   - `conda_build_v1()` - Build a specific package output
+
+3. Create a server:
+   ```rust
+   let server = Server::new(your_instantiator);
+   server.run().await?; // stdin/stdout mode
+   // or
+   server.run_over_http(port)?; // HTTP mode
+   ```
+
+See the [Python Backend](/backends/python) and [Rust Backend](/backends/rust) for complete implementation examples.

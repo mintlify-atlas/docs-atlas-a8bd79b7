@@ -1,122 +1,106 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Pixi Build Backends",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#3b82f6",
+    "light": "#60a5fa",
+    "dark": "#2563eb"
   },
-  "favicon": "/favicon.svg",
+  "favicon": "/favicon.png",
+  "logo": {
+    "light": "/logo-dark.svg",
+    "dark": "/logo-dark.svg"
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/prefix-dev/pixi-build-backends"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/prefix-dev/pixi-build-backends",
+      "website": "https://prefix.dev"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
+              "introduction",
               "quickstart",
-              "development"
+              "installation"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Concepts",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "concepts/build-backends",
+              "concepts/protocol",
+              "concepts/compilers",
+              "concepts/variants"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Guides",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
-            ]
-          },
-          {
-            "group": "AI tools",
-            "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "guides/configuration",
+              "guides/debugging",
+              "guides/developing-backends"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "Backends",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Available Backends",
             "pages": [
-              "api-reference/introduction"
+              "backends/overview",
+              "backends/pixi-build-python",
+              "backends/pixi-build-cmake",
+              "backends/pixi-build-rust",
+              "backends/pixi-build-rattler-build",
+              "backends/pixi-build-ros",
+              "backends/pixi-build-mojo"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Backend Development",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "backends/creating-backends",
+              "backends/backend-api"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Configuration",
+            "pages": [
+              "api/build-system",
+              "api/config-options",
+              "api/dependency-types"
+            ]
+          },
+          {
+            "group": "Backend Protocol",
+            "pages": [
+              "api/protocol-spec",
+              "api/project-model",
+              "api/generated-recipe"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

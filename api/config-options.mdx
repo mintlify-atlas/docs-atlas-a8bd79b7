@@ -1,0 +1,317 @@
+---
+title: "Backend Configuration Options"
+description: "All available configuration options across build backends"
+---
+
+This page documents all configuration options available in the `[package.build.config]` section across different build backends. Each backend supports a different subset of these options.
+
+## Common Options
+
+These options are available across multiple backends.
+
+### `extra-args`
+
+<ParamField path="extra-args" type="array of strings" default="[]">
+  Additional command-line arguments to pass to the backend's build tool.
+  
+  **Available in:** Python, Rust, CMake, Mojo (bins/pkg)
+  
+  **Target Merge Behavior:** Overwrite - Platform-specific arguments completely replace base arguments
+  
+  **Examples:**
+  
+  Python backend:
+  ```toml
+  [package.build.config]
+  extra-args = ["-v", "--no-cache-dir"]
+  ```
+  
+  Rust backend:
+  ```toml
+  [package.build.config]
+  extra-args = ["--features", "serde,tokio", "--bin", "my-binary"]
+  ```
+  
+  CMake backend:
+  ```toml
+  [package.build.config]
+  extra-args = ["-DENABLE_TESTING=ON", "-DCMAKE_CXX_STANDARD=17"]
+  ```
+</ParamField>
+
+### `env`
+
+<ParamField path="env" type="object" default="{}">
+  Environment variables to set during the build process. These variables are available during compilation and package installation.
+  
+  **Available in:** Python, Rust, CMake, Mojo
+  
+  **Target Merge Behavior:** Merge - Platform environment variables override base variables with the same name, others are merged
+  
+  **Example:**
+  ```toml
+  [package.build.config]
+  env = { RUST_LOG = "info", COMMON_VAR = "base" }
+  
+  [package.build.target.linux-64.config]
+  env = { COMMON_VAR = "linux", CARGO_PROFILE_RELEASE_LTO = "true" }
+  # Result for linux-64: { RUST_LOG = "info", COMMON_VAR = "linux", CARGO_PROFILE_RELEASE_LTO = "true" }
+  ```
+</ParamField>
+
+### `debug-dir`
+
+<ParamField path="debug-dir" type="string" deprecated>
+  **Deprecated.** Setting this has no effect; debug data is always written to the `debug` subdirectory of the work directory.
+  
+  **Available in:** Python, Rust, CMake, Mojo, Rattler-Build
+  
+  **Note:** A warning is emitted if this option is present. You can safely remove it from your configuration.
+</ParamField>
+
+### `extra-input-globs`
+
+<ParamField path="extra-input-globs" type="array of strings" default="[]">
+  Additional glob patterns to include as input files for the build process. These patterns are added to the default input globs that each backend defines.
+  
+  **Available in:** Python, Rust, CMake, Mojo, Rattler-Build
+  
+  **Target Merge Behavior:** Overwrite - Platform-specific globs completely replace base globs
+  
+  **Example:**
+  ```toml
+  [package.build.config]
+  extra-input-globs = [
+      "assets/**/*",
+      "config/*.ini",
+      "*.md"
+  ]
+  ```
+</ParamField>
+
+### `compilers`
+
+<ParamField path="compilers" type="array of strings">
+  List of compilers to use for the build. The backend automatically generates appropriate compiler dependencies using conda-forge's compiler infrastructure.
+  
+  **Available in:** Python, Rust, CMake, Mojo
+  
+  **Default values:**
+  - Python: `None` (no compilers unless detected)
+  - Rust: `None` (rust compiler added automatically)
+  - CMake: `["cxx"]`
+  - Mojo: `["mojo"]` if not specified
+  
+  **Target Merge Behavior:** Overwrite - Platform-specific compilers completely replace base compilers
+  
+  **Common compiler values:**
+  - `"c"` - C compiler
+  - `"cxx"` - C++ compiler
+  - `"rust"` - Rust compiler
+  - `"fortran"` - Fortran compiler
+  - `"cuda"` - CUDA compiler
+  - `"mojo"` - Mojo compiler
+  
+  **Example:**
+  ```toml
+  [package.build.config]
+  compilers = ["c", "cxx", "fortran"]
+  
+  [package.build.target.linux-64.config]
+  compilers = ["c", "cxx", "cuda"]
+  ```
+</ParamField>
+
+## Python Backend Options
+
+Specific to `pixi-build-python`.
+
+### `noarch`
+
+<ParamField path="noarch" type="boolean" default="true">
+  Controls whether to build a platform-independent (noarch) package or a platform-specific package.
+  
+  The backend automatically sets this to `false` if compilers are specified, since packages with native extensions are typically platform-specific.
+  
+  **Target Merge Behavior:** Overwrite - Platform-specific noarch setting takes precedence over base
+  
+  **Example:**
+  ```toml
+  [package.build.config]
+  noarch = false  # Build platform-specific package
+  ```
+</ParamField>
+
+### `ignore-pyproject-manifest`
+
+<ParamField path="ignore-pyproject-manifest" type="boolean" default="false">
+  Ignore the pyproject.toml manifest and rely only on the project model defined in pixi.toml.
+  
+  When `false` (default), the backend reads metadata and dependencies from `pyproject.toml`.
+  
+  **Example:**
+  ```toml
+  [package.build.config]
+  ignore-pyproject-manifest = true
+  ```
+</ParamField>
+
+### `ignore-pypi-mapping`
+
+<ParamField path="ignore-pypi-mapping" type="boolean" default="true">
+  Ignore the PyPI-to-conda mapping. When enabled (default), dependencies from `pyproject.toml` will not be automatically mapped to conda packages.
+  
+  Set to `false` to enable automatic mapping of:
+  - `project.dependencies` → conda run dependencies
+  - `build-system.requires` → conda host dependencies
+  
+  **Example:**
+  ```toml
+  [package.build.config]
+  ignore-pypi-mapping = false  # Enable PyPI-to-conda mapping
+  ```
+</ParamField>
+
+## Rust Backend Options
+
+Specific to `pixi-build-rust`.
+
+### `ignore-cargo-manifest`
+
+<ParamField path="ignore-cargo-manifest" type="boolean" default="false">
+  Ignore the Cargo.toml manifest and depend only on the project model defined in pixi.toml.
+  
+  When `false` (default), the backend reads package metadata (name, version, description, license, etc.) from `Cargo.toml`.
+  
+  **Example:**
+  ```toml
+  [package.build.config]
+  ignore-cargo-manifest = true
+  ```
+</ParamField>
+
+## Mojo Backend Options
+
+Specific to `pixi-build-mojo`.
+
+### `bins`
+
+<ParamField path="bins" type="array of objects">
+  Configuration for binary executables to produce. Each binary has the following fields:
+  
+  - `name` (string, optional): Name of the binary. Defaults to project name for the first binary.
+  - `path` (string, optional): Path to file with the `main` method. Defaults to `main.mojo` in manifest root.
+  - `extra-args` (array of strings, optional): Extra args to pass to the compiler.
+  
+  **Example:**
+  ```toml
+  [[package.build.config.bins]]
+  name = "my-tool"
+  path = "src/main.mojo"
+  extra-args = ["-O3"]
+  
+  [[package.build.config.bins]]
+  name = "helper"
+  path = "src/helper.mojo"
+  ```
+</ParamField>
+
+### `pkg`
+
+<ParamField path="pkg" type="object">
+  Configuration for a Mojo package to produce. Has the following fields:
+  
+  - `name` (string, optional): Name of the package. Defaults to project name.
+  - `path` (string, optional): Path to the directory that constitutes the package. Defaults to searching for `__init__.mojo` in `<project-name>/` or `src/`.
+  - `extra-args` (array of strings, optional): Extra args to pass to the compiler.
+  
+  **Example:**
+  ```toml
+  [package.build.config.pkg]
+  name = "mylib"
+  path = "src/mylib"
+  extra-args = ["-O2"]
+  ```
+</ParamField>
+
+## Rattler-Build Backend Options
+
+Specific to `pixi-build-rattler-build`.
+
+### `experimental`
+
+<ParamField path="experimental" type="boolean" default="false">
+  Enable experimental features in rattler-build (e.g., cache support for multi-output recipes).
+  
+  **Note:** This option cannot be set in target-specific configurations. It must be set at the root `[package.build.config]` level only.
+  
+  **Example:**
+  ```toml
+  [package.build.config]
+  experimental = true
+  ```
+</ParamField>
+
+## Target-Specific Merge Behavior
+
+When using `[package.build.target.<platform>.config]`, different options have different merge behaviors:
+
+### Overwrite Behavior
+
+These options completely replace the base value:
+- `extra-args`
+- `extra-input-globs`
+- `compilers`
+- `noarch` (Python)
+
+```toml
+[package.build.config]
+extra-args = ["--release"]
+
+[package.build.target.linux-64.config]
+extra-args = ["--features", "linux-specific"]
+# Result for linux-64: ["--features", "linux-specific"]
+```
+
+### Merge Behavior
+
+These options merge with the base value:
+- `env` - Platform-specific variables override base variables with the same name
+
+```toml
+[package.build.config]
+env = { RUST_LOG = "info", COMMON = "base" }
+
+[package.build.target.linux-64.config]
+env = { COMMON = "linux", EXTRA = "value" }
+# Result for linux-64: { RUST_LOG = "info", COMMON = "linux", EXTRA = "value" }
+```
+
+### Disallowed in Targets
+
+These options cannot have target-specific values:
+- `debug-dir` (all backends)
+- `experimental` (rattler-build)
+
+## Backend Comparison Table
+
+| Option | Python | Rust | CMake | Mojo | Rattler-Build |
+|--------|--------|------|-------|------|---------------|
+| `extra-args` | ✓ | ✓ | ✓ | ✓ (bins/pkg) | - |
+| `env` | ✓ | ✓ | ✓ | ✓ | - |
+| `debug-dir` | ✓ (deprecated) | ✓ (deprecated) | ✓ (deprecated) | ✓ (deprecated) | ✓ (deprecated) |
+| `extra-input-globs` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `compilers` | ✓ | ✓ | ✓ | ✓ | - |
+| `noarch` | ✓ | - | - | - | - |
+| `ignore-pyproject-manifest` | ✓ | - | - | - | - |
+| `ignore-pypi-mapping` | ✓ | - | - | - | - |
+| `ignore-cargo-manifest` | - | ✓ | - | - | - |
+| `bins` | - | - | - | ✓ | - |
+| `pkg` | - | - | - | ✓ | - |
+| `experimental` | - | - | - | - | ✓ |
+
+## See Also
+
+- [Build System Configuration](/api/build-system) - Configure backend and channels
+- [Dependency Types](/api/dependency-types) - Understanding build, host, and run dependencies
+- [Compilers Documentation](https://github.com/prefix-dev/pixi-build-backends/blob/main/docs/key_concepts/compilers.md) - Detailed compiler information

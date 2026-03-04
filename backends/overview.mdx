@@ -1,0 +1,246 @@
+---
+title: "Available Backends Overview"
+description: "Explore the build backends available in Pixi Build for different programming languages and build systems"
+---
+
+Pixi Build provides specialized backend implementations for building packages from source code across multiple programming languages and build systems. Each backend is designed to handle the specific requirements and conventions of its target ecosystem while providing seamless integration with Pixi's package management workflow.
+
+## What are Build Backends?
+
+Build backends are executable components that translate your source code into conda packages. They:
+
+- **Automate build processes**: Handle compilation, installation, and packaging automatically
+- **Integrate with conda**: Generate conda packages that work seamlessly with the conda ecosystem
+- **Support cross-platform builds**: Enable building for Linux, macOS, and Windows
+- **Manage dependencies**: Automatically resolve and map dependencies to conda packages
+- **Follow ecosystem conventions**: Use native build tools and respect language-specific standards
+
+<Note>
+  `pixi-build` is a preview feature. You must opt-in by adding `"pixi-build"` to `workspace.preview` in your `pixi.toml`:
+  
+  ```toml
+  [workspace]
+  preview = ["pixi-build"]
+  ```
+</Note>
+
+## Available Backends
+
+### Python - pixi-build-python
+
+Builds Python projects using standard Python packaging tools with PEP 517/518 compliance.
+
+<Card title="pixi-build-python" icon="python" href="/backends/pixi-build-python">
+  Perfect for Python packages using `pyproject.toml`, with automatic PyPI-to-conda dependency mapping and support for both pure Python and extension modules.
+</Card>
+
+**Key Features:**
+- Automatic metadata extraction from `pyproject.toml`
+- PyPI-to-conda dependency mapping (opt-in)
+- Support for pip and uv installers
+- Automatic compiler detection for extension modules
+- Noarch package support for pure Python
+
+**Best For:** Python libraries, command-line tools, and applications
+
+---
+
+### CMake - pixi-build-cmake
+
+Builds C/C++ projects using the CMake build system with Ninja generator.
+
+<Card title="pixi-build-cmake" icon="code" href="/backends/pixi-build-cmake">
+  Ideal for C/C++ projects using CMake, with automatic compiler detection and cross-platform support.
+</Card>
+
+**Key Features:**
+- Fast builds with Ninja generator
+- Automatic C/C++ compiler configuration
+- Standard CMake workflow with sensible defaults
+- Support for custom CMake flags
+- Cross-platform compatibility
+
+**Best For:** C/C++ libraries, system tools, and performance-critical applications
+
+---
+
+### Rust - pixi-build-rust
+
+Builds Rust projects using Cargo with automatic metadata extraction from `Cargo.toml`.
+
+<Card title="pixi-build-rust" icon="rust" href="/backends/pixi-build-rust">
+  Native Rust support with Cargo integration, automatic metadata detection, and sccache optimization.
+</Card>
+
+**Key Features:**
+- Automatic metadata extraction from `Cargo.toml`
+- OpenSSL integration for crypto libraries
+- sccache support for faster compilation
+- Cross-platform Rust toolchain support
+- Locked dependency builds with `Cargo.lock`
+
+**Best For:** Rust command-line tools, libraries, and system utilities
+
+---
+
+### Rattler-Build - pixi-build-rattler-build
+
+Builds conda packages using existing rattler-build `recipe.yaml` files.
+
+<Card title="pixi-build-rattler-build" icon="file-code" href="/backends/pixi-build-rattler-build">
+  Use existing rattler-build recipes or create custom build workflows with full recipe feature support.
+</Card>
+
+**Key Features:**
+- Full rattler-build recipe support
+- Multi-output package builds
+- Advanced customization with selectors
+- Workspace package integration
+- Virtual package detection
+
+**Best For:** Complex build scenarios, legacy recipes, or when you need fine-grained control
+
+---
+
+### ROS - pixi-build-ros
+
+Builds ROS (Robot Operating System) packages with automatic dependency mapping from `package.xml`.
+
+<Card title="pixi-build-ros" icon="robot" href="/backends/pixi-build-ros">
+  Native ROS1 and ROS2 support with automatic metadata extraction from package.xml and RoboStack integration.
+</Card>
+
+**Key Features:**
+- Automatic metadata extraction from `package.xml`
+- Support for ROS1 (catkin) and ROS2 (ament_cmake, ament_python)
+- Automatic dependency mapping to RoboStack packages
+- Multi-distro support (noetic, humble, jazzy, etc.)
+- Cross-platform ROS builds
+
+**Best For:** ROS packages, robotics applications, and ROS-based systems
+
+---
+
+### Mojo - pixi-build-mojo
+
+Builds Mojo projects with automatic binary and package discovery.
+
+<Card title="pixi-build-mojo" icon="fire" href="/backends/pixi-build-mojo">
+  Build Mojo binaries and packages with auto-discovery of project structure and compiler integration.
+</Card>
+
+**Key Features:**
+- Automatic binary discovery from `main.mojo`
+- Automatic package discovery from `__init__.mojo`
+- Support for both binaries and libraries
+- Flexible project structure support
+- Mojo compiler integration
+
+**Best For:** Mojo applications, libraries, and performance-critical code
+
+---
+
+## Choosing the Right Backend
+
+Select your backend based on your project's primary programming language and build system:
+
+| Backend | Use When |
+|---------|----------|
+| **pixi-build-python** | Building Python packages with `pyproject.toml` |
+| **pixi-build-cmake** | Building C/C++ projects with CMake |
+| **pixi-build-rust** | Building Rust projects with Cargo |
+| **pixi-build-rattler-build** | Using existing recipes or need advanced customization |
+| **pixi-build-ros** | Building ROS packages with `package.xml` |
+| **pixi-build-mojo** | Building Mojo projects with binaries or packages |
+
+## Basic Configuration
+
+All backends share a common configuration pattern in your `pixi.toml`:
+
+```toml
+[workspace]
+preview = ["pixi-build"]
+
+[package]
+name = "my-package"
+version = "0.1.0"
+
+[package.build]
+backend = { name = "pixi-build-<backend>", version = "*" }
+channels = ["https://prefix.dev/conda-forge"]
+
+[package.build.config]
+# Backend-specific configuration options
+```
+
+## Common Configuration Options
+
+Most backends support these common configuration options:
+
+### Environment Variables
+
+Set environment variables during the build process:
+
+```toml
+[package.build.config]
+env = { VAR_NAME = "value", ANOTHER_VAR = "value2" }
+```
+
+### Extra Input Globs
+
+Specify additional files to include in incremental build detection:
+
+```toml
+[package.build.config]
+extra-input-globs = [
+    "data/**/*",
+    "assets/*.png",
+    "*.md"
+]
+```
+
+### Compilers
+
+Specify which compilers to use (where applicable):
+
+```toml
+[package.build.config]
+compilers = ["c", "cxx"]
+```
+
+<Note>
+  For comprehensive compiler documentation including platform-specific behavior and conda-forge integration, see the [Compilers Documentation](https://pixi.sh/latest/key_concepts/compilers/).
+</Note>
+
+## Debug Information
+
+All backends automatically write debug information to `<work_directory>/debug/`:
+
+- JSON-RPC request/response logs
+- Generated intermediate recipes
+- Build output and diagnostics
+
+This information is invaluable for troubleshooting build issues.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Python Backend" icon="python" href="/backends/pixi-build-python">
+    Learn about building Python packages
+  </Card>
+  <Card title="CMake Backend" icon="code" href="/backends/pixi-build-cmake">
+    Learn about building C/C++ projects
+  </Card>
+  <Card title="Rust Backend" icon="rust" href="/backends/pixi-build-rust">
+    Learn about building Rust packages
+  </Card>
+  <Card title="ROS Backend" icon="robot" href="/backends/pixi-build-ros">
+    Learn about building ROS packages
+  </Card>
+</CardGroup>
+
+## See Also
+
+- [Building Packages](https://pixi.sh/latest/build/) - General guide to building with Pixi
+- [Dependency Types](https://pixi.sh/latest/build/dependency_types/) - Understanding build, host, and run dependencies
+- [Build Variants](https://pixi.sh/latest/reference/pixi_manifest/#build-variants-optional) - Configure build variants for cross-compilation

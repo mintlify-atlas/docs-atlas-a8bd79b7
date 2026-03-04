@@ -1,0 +1,218 @@
+---
+title: 'ProjectModel'
+description: 'Project metadata and dependencies passed to backends'
+---
+
+## Overview
+
+The `ProjectModel` is a structured representation of a pixi project that gets passed to backends during the `initialize` RPC call. It contains all the metadata and dependency information needed to build conda packages.
+
+The ProjectModel is defined in the external `pixi_build_types` crate and represents version 1 of the project model format.
+
+## Structure
+
+The ProjectModel contains package metadata and platform-specific dependency information:
+
+<ResponseField name="name" type="string">
+  Package name. If not provided, backends should attempt to derive it from project files (e.g., `pyproject.toml`, `Cargo.toml`).
+</ResponseField>
+
+<ResponseField name="version" type="string">
+  Package version. If not provided, backends should derive it from project files.
+</ResponseField>
+
+<ResponseField name="description" type="string">
+  Package description
+</ResponseField>
+
+<ResponseField name="authors" type="array">
+  List of package authors
+</ResponseField>
+
+<ResponseField name="license" type="string">
+  SPDX license identifier (e.g., "MIT", "Apache-2.0")
+</ResponseField>
+
+<ResponseField name="license_file" type="string">
+  Path to license file relative to source directory
+</ResponseField>
+
+<ResponseField name="readme" type="string">
+  Path to README file
+</ResponseField>
+
+<ResponseField name="homepage" type="string">
+  Project homepage URL
+</ResponseField>
+
+<ResponseField name="repository" type="string">
+  Source repository URL
+</ResponseField>
+
+<ResponseField name="documentation" type="string">
+  Documentation URL
+</ResponseField>
+
+<ResponseField name="targets" type="TargetsV1">
+  Platform-specific dependency configuration
+  <Expandable title="structure">
+    <ResponseField name="default_target" type="TargetDependencies" required>
+      Dependencies that apply to all platforms
+      <Expandable title="properties">
+        <ResponseField name="host_dependencies" type="object">
+          Dependencies required during build on the host platform. Keys are package names, values are dependency specifications.
+        </ResponseField>
+        <ResponseField name="build_dependencies" type="object">
+          Dependencies required for cross-compilation build tools
+        </ResponseField>
+        <ResponseField name="run_dependencies" type="object">
+          Runtime dependencies for the package
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="targets" type="object">
+      Platform-specific dependency overrides. Keys are platform selectors (e.g., "Linux", "Windows", "osx-arm64").
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Dependency Specification
+
+Dependencies in the ProjectModel can be specified in multiple formats:
+
+### Binary Dependency
+
+References a pre-built conda package:
+
+```json
+"python": {
+  "binary": {
+    "version": ">=3.8"
+  }
+}
+```
+
+<ResponseField name="binary" type="object">
+  <Expandable title="properties">
+    <ResponseField name="version" type="string">
+      Version constraint (e.g., ">=3.8", "~=1.0")
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Source Dependency
+
+Builds a dependency from source using pixi-build:
+
+```json
+"my-lib": {
+  "source": {
+    "path": "../my-lib"
+  }
+}
+```
+
+<ResponseField name="source" type="object">
+  <Expandable title="properties">
+    <ResponseField name="path" type="string">
+      Relative path to the source directory
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Example
+
+Here's a complete example from the test fixtures:
+
+```json
+{
+  "name": "minimal-package",
+  "version": "1.0.0",
+  "description": null,
+  "authors": null,
+  "license": null,
+  "license_file": null,
+  "readme": null,
+  "homepage": null,
+  "repository": null,
+  "documentation": null,
+  "targets": {
+    "default_target": {
+      "host_dependencies": {},
+      "build_dependencies": {},
+      "run_dependencies": {
+        "python": {
+          "binary": {
+            "version": ">=3.8"
+          }
+        }
+      }
+    },
+    "targets": {
+      "Linux": {
+        "host_dependencies": {
+          "rich": {
+            "binary": {
+              "version": ">=10.0"
+            }
+          }
+        },
+        "build_dependencies": {},
+        "run_dependencies": {}
+      }
+    }
+  }
+}
+```
+
+This example shows:
+- Basic package metadata (name and version)
+- A default Python runtime dependency (all platforms)
+- A Linux-specific host dependency on the `rich` package
+
+## Backend Usage
+
+Backends receive the ProjectModel and typically:
+
+1. **Extract metadata** - Use provided name/version or derive from project files
+2. **Merge dependencies** - Combine default_target with platform-specific targets
+3. **Convert to recipe format** - Transform into an IntermediateRecipe (see [Generated Recipe](/api/generated-recipe))
+
+The `GeneratedRecipe::from_model()` helper function provides a default implementation:
+
+```rust
+let recipe = GeneratedRecipe::from_model(
+    model.clone(),
+    &mut DefaultMetadataProvider
+)?;
+```
+
+## Metadata Provider
+
+Backends can implement the `MetadataProvider` trait to fill in missing fields from project-specific files:
+
+```rust
+pub trait MetadataProvider {
+    fn name(&mut self) -> Result<Option<String>>;
+    fn version(&mut self) -> Result<Option<Version>>;
+    fn homepage(&mut self) -> Result<Option<String>>;
+    fn license(&mut self) -> Result<Option<String>>;
+    fn license_files(&mut self) -> Result<Option<Vec<String>>>;
+    fn summary(&mut self) -> Result<Option<String>>;
+    fn description(&mut self) -> Result<Option<String>>;
+    fn documentation(&mut self) -> Result<Option<String>>;
+    fn repository(&mut self) -> Result<Option<String>>;
+}
+```
+
+For example, the Python backend reads from `pyproject.toml`, while the Rust backend reads from `Cargo.toml`.
+
+## Platform Selectors
+
+Platform selectors in the `targets` object can be:
+
+- OS-based: `"Linux"`, `"Windows"`, `"osx"`
+- Architecture-specific: `"linux-64"`, `"osx-arm64"`, `"win-64"`
+- Virtual package based: Custom selectors defined by the project
+
+Backends should use the `TargetSelector` trait to evaluate which dependencies apply to a given build configuration.
